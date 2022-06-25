@@ -15,3 +15,11 @@ The sensor should be placed in the tank where it will not pick up a reading from
 In this application, the distance sensor is used in [Mode 4](https://www.mantech.co.za/Datasheets/Products/AJ-SR04M-200925A.pdf) (Low Power Serial Port Mode), so a 47 kΩ resistor must be soldered on R19.
 
 Rename config.h.sample to config.h and adapt the settings to your environment.
+
+Use [Arduino IDE](https://www.arduino.cc/en/software) to buil and deploy. Make sure you have the following libraries:
+ * WiFi (by Arduino)
+ * ArduinoJson (by Benoit Blanchon)
+ * ArduinoLog (by Thijs Elenbaas)
+ * PubSubClient (by Nick O’Leary)
+
+ To deploy, set Flash mode to DOUT.
