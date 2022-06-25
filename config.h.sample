@@ -6,7 +6,7 @@ const uint8_t DEFAULT_MAX_DIFFERENCE = 10;// %
 const uint64_t DEFAULT_SLEEP_TIME = 5e6;  // us
 
 const int CLOSEST = 200;                  // mm
-const int FARTHEST = 10000;               // mm
+const int FARTHEST = 8000;                // mm
 const int SPEED_OF_SOUND = 330;           // m
 
 // Network credentials
