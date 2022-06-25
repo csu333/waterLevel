@@ -22,7 +22,7 @@ Use [Arduino IDE](https://www.arduino.cc/en/software) to buil and deploy. Make s
  * ArduinoLog (by Thijs Elenbaas)
  * PubSubClient (by Nick O’Leary)
 
- [Add a Board Manager URL](https://support.arduino.cc/hc/en-us/articles/360016466340-Add-or-remove-third-party-boards-in-Boards-Manager): http://arduino.esp8266.com/stable/package_esp8266com_index.json
+ [Add a Board Manager URL](https://support.arduino.cc/hc/en-us/articles/360016466340-Add-or-remove-third-party-boards-in-Boards-Manager): http<nolink>://arduino.esp8266.com/stable/package_esp8266com_index.json
 
  Select board **Generic ESP8266 Module** under *Tools* > *ESP8266 Boards*
 
