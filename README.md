@@ -43,4 +43,4 @@ Example:
 
  Make sure you send the config with the "retain" option. The values are read at the end of the reading cycle so it will take up to 5 minutes for the settings to apply. To speed up the process, you can push the reset button.
 
- ![Sensor installation](Sensor installation.drawio.png "Sensor installation")
+ ![Sensor installation](Sensor%20installation.drawio.png "Sensor installation")
