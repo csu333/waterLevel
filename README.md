@@ -20,7 +20,7 @@ Use [Arduino IDE](https://www.arduino.cc/en/software) to buil and deploy. Make s
  * WiFi (by Arduino)
  * ArduinoJson (by Benoit Blanchon)
  * ArduinoLog (by Thijs Elenbaas)
- * PubSubClient (by Nick O’Leary)
+ * PubSubClient (by Nick O'Leary)
 
  [Add a Board Manager URL](https://support.arduino.cc/hc/en-us/articles/360016466340-Add-or-remove-third-party-boards-in-Boards-Manager): http<nolink>://arduino.esp8266.com/stable/package_esp8266com_index.json
 
@@ -29,11 +29,11 @@ Use [Arduino IDE](https://www.arduino.cc/en/software) to buil and deploy. Make s
  To deploy, set Flash mode to **DOUT**.
 
  ## Software configuration
- The software is configured over MQTT. You need to send a JSON message to the device with configuration values. The possible settings are (case-sensitive):
-  * *minValue* (Default **8000**mm): the value read when there is no water in the tank. The sensor cannot measure distamces of more than 8m so the default is the maximum value.
-  * *maxValue* (Default **200**mm): the value read when the tank is full. The sensor has a blind area of 20cm so the default value is as low has it can get.
+ The software is configured over MQTT. You need to send a JSON message to the device with configuration values. The possible settings are (case-sensitive):
+  * *minValue* (Default **200**mm): the value read when there is no water in the tank. The sensor has a blind area of 20cm so the default value is as low has it can get. This ensures that the correct value is detected as the level in the tnak changes. 
+  * *maxValue* (Default **8000**mm): the value read when the tank is full. The sensor cannot measure distamces of more than 8m.This ensures that the correct value is detected as the level in the tnak changes. 
   * *sleepTime* (Default **300**s): the time between 2 readings in seconds (max. 4260 because of [hardware limitations](https://thingpulse.com/max-deep-sleep-for-esp8266/)). This setting has a huge impact on autonomy.
-  * *maxDifference* (Default **10**%): the maximum difference allowed between 2 readings. If the difference is higher, another reading is performed.
+  * *maxDifference* (Default **200**mm): the maximum difference allowed between 2 readings. If the difference is higher, another reading is performed.
   * *logLevel* (Default **3**): a value [between 0 and 6](https://github.com/thijse/Arduino-Log) to define how much is logged.
 
 Example:
@@ -43,8 +43,22 @@ Example:
     "maxDifference": 15
   }
   ```
+
+If you configure more than one probe, you can use indexed minLevel and maxLevel:
+  ```json
+  {
+    "minLevel[0]": 1000,
+    "maxLevel[0]": 300,
+    "maxLevel[1]": 250
+  }
+  ```
+
  **Mind the quotes, punctuation and casing!**
 
  Make sure you send the config with the **Retain** option. The values are read at the end of the reading cycle so it will take up to 5 minutes for the settings to apply. To speed up the process, you can push the reset button to trigger a new cycle.
+
+## Hardware setup
+This is how you connect your ESP8266:
+![Probe connections](Probe%20connections.drawio.png "Probe connections")
 
  ![Sensor installation](Sensor%20installation.drawio.png "Sensor installation")

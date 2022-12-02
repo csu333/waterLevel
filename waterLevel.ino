@@ -11,6 +11,7 @@
 #include <EEPROM.h>
 #include <ArduinoJson.h>
 #include <ArduinoLog.h>
+#include <SoftwareSerial.h>
 #include "BufferPrint.h"
 #include "PBPrint.h"
 #include "config.h"
@@ -20,8 +21,9 @@ char msg[MSG_BUFFER_SIZE];
 
 const int analogInPin = A0;  // ESP8266 Analog Pin ADC0 = A0
 
-#define rxPin 13
-#define txPin 15
+#define rxPin 0
+#define txPin 2
+#define gndPin 12
 
 /****************************************************************************************************************/
 
@@ -30,11 +32,11 @@ const int analogInPin = A0;  // ESP8266 Analog Pin ADC0 = A0
 \*************/
 
 // Sensor config
-#define MIN_LEVEL 4
-#define MAX_LEVEL 8
-#define SLEEP_TIME 16
-#define MAX_DIFFERENCE 32
-#define EEPROM_SIZE 36
+#define MIN_LEVEL 0
+#define MAX_LEVEL       MIN_LEVEL + PROBE_COUNT * 4
+#define SLEEP_TIME      MAX_LEVEL + PROBE_COUNT * 4
+#define MAX_DIFFERENCE  SLEEP_TIME + 4
+#define EEPROM_SIZE     MAX_DIFFERENCE + 4
 
 const String LOG_TOPIC = ROOT_TOPIC + "/log";
 
@@ -50,16 +52,16 @@ bool removeConfigMsg = false;
 // The ESP8266 RTC memory is arranged into blocks of 4 bytes. The access methods read and write 4 bytes at a time,
 // so the RTC data structure should be padded to a 4-byte multiple.
 struct {
-  uint32_t crc32;               // 4 bytes
-  uint8_t  channel;             // 1 byte,    5 in total
-  uint8_t  bssid[6];            // 6 bytes,   11 in total
-  uint8_t  failedConnection;    // 1 byte,    12 in total
-  uint8_t  batteryAlertSent;    // 1 byte,    13 in total
-  uint8_t  waterLevelAlertSent; // 1 byte,    14 in total
-  uint8_t  logLevel;            // 1 byte,    15 in total
-  uint16_t lastMeasure;         // 2 bytes,   17 in total
-  uint16_t bufferPosition;      // 2 bytes,   19 in total
-  uint8_t  logBuffer[400];      // 400 bytes, 419 in total
+  uint32_t crc32;                             // 4 bytes
+  uint8_t  channel;                           // 1 byte,    5 in total
+  uint8_t  bssid[6];                          // 6 bytes,   11 in total
+  uint8_t  failedConnection;                  // 1 byte,    12 in total
+  uint8_t  batteryAlertSent;                  // 1 byte,    13 in total
+  uint8_t  waterLevelAlertSent;               // 1 byte,    14 in total
+  uint8_t  logLevel;                          // 1 byte,    15 in total
+  uint16_t lastMeasure[PROBE_COUNT];          // 2*PROBE_COUNT bytes
+  uint16_t bufferPosition;                    // 2 bytes
+  uint8_t  logBuffer[400-2*PROBE_COUNT];      // 400 bytes
 } rtcData;
 
 /****************************************************************************************************************/
@@ -73,10 +75,12 @@ WiFiClient espClient;
 PubSubClient client(espClient);
 PBPrint mqttLog = PBPrint(&client, "");
 
+SoftwareSerial swSer;
+
 float batteryLevel = 0;  // value read from A0
 uint32_t sleepTime;
-int minLevel;
-int maxLevel;
+int minLevel[PROBE_COUNT];
+int maxLevel[PROBE_COUNT];
 uint8_t maxDifference;
 bool batteryAlertSent = false;
 bool waterLevelAlertSent = false;
@@ -84,6 +88,8 @@ bool waterLevelAlertSent = false;
 bool rtcLoaded = false;
 bool rtcValid = false;
 bool rtcDirty = false;
+
+bool commit = false;
 
 /****************************************************************************************************************/
 
@@ -104,14 +110,16 @@ void initWiFi() {
   WiFi.mode(WIFI_STA);
   if( rtcValid && rtcData.failedConnection < 4) {
     // The RTC data was good, make a quick connection
-    WiFi.begin( WLAN_SSID, WLAN_PASSWD, rtcData.channel, rtcData.bssid, true );
+    Log.traceln(F("Using fast WiFi connect"));
+    WiFi.begin(WLAN_SSID, WLAN_PASSWD, rtcData.channel, rtcData.bssid, true);
   }
   else {
     // The RTC data was not valid, so make a regular connection
+    Log.warningln(F("Number of connection failure too high (%). Using regular connection instead"), rtcData.failedConnection);
     WiFi.begin( WLAN_SSID, WLAN_PASSWD );
   }
   WiFi.config(staticIP, gateway, subnet);
-  Log.noticeln("Connecting to WiFi");
+  Log.noticeln("Waiting WiFi connection");
   
   // Wait for successful connection
   int retries = 0;
@@ -125,17 +133,17 @@ void initWiFi() {
       Log.warningln(F("Fast connect failed"));
       Log.noticeln(F("Channel: %d"), rtcData.channel); 
       Log.noticeln(F("BSSID: %x:%x:%x:%x:%x:%x"), rtcData.bssid[0], rtcData.bssid[1], rtcData.bssid[2], rtcData.bssid[3], rtcData.bssid[4], rtcData.bssid[5]);
-      WiFi.disconnect();
-      delay( 10 );
+      WiFi.disconnect( true );
+      delay( 50 );
       WiFi.forceSleepBegin();
-      delay( 10 );
+      delay( 100 );
       WiFi.forceSleepWake();
-      delay( 10 );
+      delay( 50 );
       WiFi.begin( WLAN_SSID, WLAN_PASSWD );
     }
     
-    if (retries == 600) {
-      Log.errorln(F("something happened, trying to reset"));
+    if (retries >= 600) {
+      Log.errorln(F("Something happened, giving up"));
       // Giving up after 30 seconds and going back to sleep
       WiFi.disconnect( true );
       delay( 1 );
@@ -145,6 +153,7 @@ void initWiFi() {
       rtcDirty = true;
       saveRtc();
       
+      EEPROM.end();
       ESP.deepSleepInstant(sleepTime, WAKE_RF_DISABLED);
     }
     
@@ -152,6 +161,9 @@ void initWiFi() {
   }
   Serial.println("");
   Log.noticeln(F("RSSI: %d dB"), WiFi.RSSI()); 
+  if (rtcData.failedConnection > 0) {
+    Log.warningln(F("Wifi connected after %d failures"), rtcData.failedConnection);
+  }
 
   // Write current connection info back to RTC
   rtcData.channel = WiFi.channel();
@@ -213,7 +225,6 @@ void callback(char* topic, byte* payload, unsigned int length) {
 
   //Init EEPROM
   EEPROM.begin(EEPROM_SIZE);
-  bool commit = false;
 
   Log.traceln(F("Number of keypairs: %d"), conf.size());
 
@@ -221,29 +232,53 @@ void callback(char* topic, byte* payload, unsigned int length) {
   for (JsonPair p : conf) {
     
     const char* key = p.key().c_str();
-    Log.traceln("Processing: { \"%s\": %s }", p.key().c_str(), p.value().as<String>());
+    char cKey[20];
+    strncpy(cKey, key, sizeof(cKey) - 1);
+    String sKey = String(cKey);
+    String value = p.value().as<String>();
+    Log.traceln(F("Processing: { \"%s\": %s }"), sKey, value);
     
-    if (strcmp(key, "minLevel") == 0) {
-      if (isnan(minLevel) || minLevel != (int)p.value()){
-        minLevel = (int)p.value();
-        EEPROM.put(MIN_LEVEL, minLevel);
+    // Check for indexed keys
+    int len = strlen(key);
+    byte index = 0;
+    if (len > 3 && key[len-3] == '[' && isDigit(key[len-2]) && key[len-1] == ']'){
+      index = (byte)key[len-2] - '0';
+      cKey[len-3] = 0;
+
+      if (index >= PROBE_COUNT){
+        Log.error(F("Configuration impossible as index (%d) is higher than the number of probes supported when compiling (%d)."), index, PROBE_COUNT);
+        continue;
+      }
+
+      Log.traceln(F("Indexed key found: %s[%d]"), cKey, index);
+    }
+
+    // Process setting
+    if (strcmp(cKey, "minLevel") == 0) {
+      if (isnan(minLevel[index]) || minLevel[index] != (int)p.value()){
+        minLevel[index] = (int)p.value();
+        if (minLevel[index] > FARTHEST) {
+          minLevel[index] = FARTHEST;
+          Log.warningln(F("Min level in beyond max range. Setting probe %d to %d mm"), index, FARTHEST);
+        }
+        EEPROM.put(MIN_LEVEL+index*sizeof(minLevel[0]), minLevel[index]);
         commit = true;
         
-        Log.noticeln(F("New minimum level set: %d"), minLevel);
+        Log.noticeln(F("New minimum level set for probe %d: %d"), index, minLevel[index]);
       } else {
         Log.verboseln(F("Value unchanged. Ignoring"));
       }
-    } else if (strcmp(key, "maxLevel") == 0) {
-      if (isnan(maxLevel) || maxLevel != (int)p.value()){
-        maxLevel = (int)p.value();
-        if (maxLevel < CLOSEST) {
-          maxLevel = CLOSEST;
-          Log.warningln(F("Max level in blind zone. Setting to %d mm"), CLOSEST);
+    } else if (strcmp(cKey, "maxLevel") == 0) {
+      if (isnan(maxLevel[index]) || maxLevel[index] != (int)p.value()){
+        maxLevel[index] = (int)p.value();
+        if (maxLevel[index] < CLOSEST) {
+          maxLevel[index] = CLOSEST;
+          Log.warningln(F("Max level in blind zone. Setting probe %d to %d mm"), index, CLOSEST);
         }
-        EEPROM.put(MAX_LEVEL, maxLevel);
+        EEPROM.put(MAX_LEVEL+index*sizeof(maxLevel[0]), maxLevel[index]);
         commit = true;
         
-        Log.noticeln(F("New maximum level set: %d"), maxLevel);
+        Log.noticeln(F("New maximum level set for probe %d: %d"), index, maxLevel[index]);
       } else {
         Log.verboseln(F("Value unchanged. Ignoring"));
       }
@@ -266,16 +301,12 @@ void callback(char* topic, byte* payload, unsigned int length) {
       }
     } else if (strcmp(key, "maxDifference") == 0) {
       if (maxDifference != p.value()){
-        if (p.value() <= 0 || p.value() > 100) {
-          Log.warningln("Incorrect max difference value. Must be between 0 and 100");
+        if (p.value() <= 0 || p.value() > maxLevel[0]) {
+          Log.warningln("Incorrect max difference value. Must be between 0 and maxLevel[0] (%D)", maxLevel[0]);
           continue;
         }
-
-        if (p.value() < 1) {
-          maxDifference = (float)p.value() * 100;
-        } else {
-          maxDifference = p.value();
-        }
+        
+        maxDifference = p.value();
         
         EEPROM.put(MAX_DIFFERENCE, maxDifference);
         commit = true;
@@ -303,13 +334,11 @@ void callback(char* topic, byte* payload, unsigned int length) {
     }
   }
 
-  if (commit) {
-    bool commited = EEPROM.commit();
-    Log.noticeln(F("New config committed: %T"), commited);
+  if (minLevel[0] < maxLevel[0]) {
+    Log.warningln("Minimum level 0 should be bigger than maximum level because the water is further away from the sensor when the level is at its minimum.");
   }
-
-  if (minLevel < maxLevel) {
-    Log.warningln("Minimum level should be bigger than maximum level because the water is further away from the sensor when the level is at its minimum.");
+  if (minLevel[1] < maxLevel[1]) {
+    Log.warningln("Minimum level 1 should be bigger than maximum level because the water is further away from the sensor when the level is at its minimum.");
   }
 
   removeConfigMsg = true;
@@ -369,12 +398,14 @@ bool loadRtc() {
 void saveRtc() {
   // Save logging buffer
   if (mqttLog.pos != rtcData.bufferPosition) {
+    Log.traceln(F("Saving logs"));
     rtcData.bufferPosition = min(sizeof(rtcData.logBuffer), (unsigned int)mqttLog.pos);
     memcpy(rtcData.logBuffer, mqttLog._buffer, rtcData.bufferPosition);
     rtcDirty = true;
   }
   
   if (rtcDirty) {
+    Log.traceln(F("Saving data in RTC memory"));
     rtcData.crc32 = calculateCRC32( ((uint8_t*)&rtcData) + 4, sizeof( rtcData ) - 4 );
     ESP.rtcUserMemoryWrite( 0, (uint32_t*)&rtcData, sizeof( rtcData ) );
   }
@@ -385,34 +416,122 @@ float getVoltage() {
   return floatVoltage;
 }
 
-int getWaterLevel() {
-  unsigned int distance = -1;
-  byte startByte, h_data, l_data, sum = 0;
-  byte buf[4];
-  Serial.flush();
-  Serial.swap();
+int getWaterReading(Stream* serial, byte index) {
+  long distance = -1;
+  byte startByte, h_data, m_data, l_data, sum;
+  byte buf[] = { 0, 0, 0, 0 };
+
+  // Swap Serial from USB to RX/TX pins
+  if (serial == &Serial) {
+    Log.traceln(F("Trying to use Serial. Swapping to pins 13/15"));
+    Serial.flush();
+    Serial.swap();
+  } 
 
   // Requesting reading
-  Serial.write(0x01);
+  serial->write(0x01);
   // Wait for the reply to be ready
   delay((FARTHEST / SPEED_OF_SOUND) + 1);
+  delay(30);
 
-  Serial.readBytes(buf, 4);
+  serial->readBytes(buf, 4);
   startByte = buf[0];
-  if(startByte == 255){
+  
+  // Swap Serial from RX/TX pins to USB
+  if (serial == &Serial) {
     Serial.swap();
-    h_data = buf[1];
-    l_data = buf[2];
-    sum = buf[3];
-    distance = (h_data<<8) + l_data;
+    Log.verboseln(F("Swapping back to TX/RX pins"));
+  }
+
+  if(startByte != 255){
+    Log.errorln(F("Invalid header: %d "), startByte);
+    return distance;
+  }
+
+  h_data = buf[1];
+  l_data = buf[2];
+  sum = buf[3];
+  distance = (h_data<<8) + l_data;
     
-    if((( h_data + l_data)&0xFF) != sum){
-      Log.errorln(F("Invalid result: %d %d (%d)"), buf[1], buf[2], buf[3]);
-    }
+  if((( h_data + l_data)&0xFF) != sum){
+    Log.errorln(F("Invalid result: %d %d (%d)"), buf[1], buf[2], buf[3]);
   }
 
   delay(1);
-  Log.verboseln(F("Remaining in buffer: %d"), Serial.available());
+  Log.verboseln(F("Remaining in buffer: %d"), serial->available());
+  
+  return distance;
+}
+
+int getWaterLevel(Stream* serial, byte index) {
+
+  int distance = getWaterReading(serial, index);
+
+  if (distance < 0) {
+    Log.errorln(F("Error reading water level %d"), index);
+    return -1;
+  }
+
+  Log.noticeln("Distance %d: %d mm", index, distance);
+
+  // Check that returned value makes sense
+  if (distance < CLOSEST) {
+    Log.warningln("Distance too short for the sensor. Trying again.");
+    distance = getWaterReading(serial, index);
+  }
+
+  int i = 0;
+  // Check reading plausibility
+  while (abs(distance - rtcData.lastMeasure[index]) > maxDifference && i < 2) {
+    Log.warningln("There is more than %dmm difference with last measure (was %dmm compared to %dmm now). Trying again after 5s", maxDifference, rtcData.lastMeasure[index], distance);
+    delay(5000);
+    rtcData.lastMeasure[index] = (uint16_t)distance;
+    distance = getWaterReading(serial, index);
+
+    if (distance < 0) {
+      Log.errorln(F("Error reading water level %d"), index);
+      return -1;
+    }
+
+    Log.noticeln("Distance %d: %d mm", index, distance);
+
+    i++;
+  }
+
+  // Check that configuration values are correct
+  if (distance > minLevel[index]) {
+    Log.warningln("Measured water level is lower than configured level. Adapting setting probe %d to %d.", index, distance);
+    // minimum level is lower than expected
+    minLevel[index] = distance;
+    EEPROM.put(MIN_LEVEL+index*sizeof(minLevel[0]), distance);
+    commit = true;
+  }
+
+  if (minLevel[index] > FARTHEST) {
+    Log.warningln(F("Min level too far. Setting probe %d to %d mm"), index, FARTHEST);
+    EEPROM.put(MIN_LEVEL+index*sizeof(minLevel[0]), FARTHEST);
+    commit = true;
+  }
+  
+  if (distance < maxLevel[index]) {
+    Log.warningln("Measured water level is higher than configured level. Adapting setting probe %d to %d.", index, distance);
+    // maximum level is higher than expected
+    maxLevel[index] = distance;
+    EEPROM.put(MAX_LEVEL+index*sizeof(maxLevel[0]), distance);
+    commit = true;
+  }
+
+  if (maxLevel[index] < CLOSEST) {
+    Log.warningln(F("Max level too close. Setting probe %d to %d mm"), index, CLOSEST);
+    EEPROM.put(MAX_LEVEL+index*sizeof(maxLevel), CLOSEST);
+    commit = true;
+  }
+  if (minLevel[index] == maxLevel[index]) {
+    minLevel[index] = maxLevel[index] + 1;
+    Log.warningln(F("Min and max levels are the sameon probe %d. Min set to %d mm"), index, minLevel[index]);
+    EEPROM.put(MIN_LEVEL+index*sizeof(minLevel[0]), minLevel[index]);
+    commit = true;
+  }
   
   return distance;
 }
@@ -428,10 +547,16 @@ void setup() {
   WiFi.mode( WIFI_OFF );
   WiFi.forceSleepBegin();
   delay( 1 );
+  pinMode(gndPin, OUTPUT);           // set pin to input
+  digitalWrite(gndPin, LOW);
   
   // initialize serial communication at 9600
   // It is mandatory to be able to read data comming from the ultrasound sensor
   Serial.begin(9600);
+  swSer.begin(9600, SWSERIAL_8N1, rxPin, txPin, false);
+  if (!swSer) { // If the object did not initialize, then its configuration is invalid
+    Log.errorln("Invalid SoftwareSerial pin configuration, check config"); 
+  } 
   
   while (!Serial) {
     ; // wait for serial port to connect. Needed for native USB port only
@@ -456,28 +581,54 @@ void setup() {
 
   // Read config from EEPROM
   EEPROM.begin(EEPROM_SIZE);
-  EEPROM.get(MIN_LEVEL, minLevel);
-  EEPROM.get(MAX_LEVEL, maxLevel);
+  for (int i = 0; i < PROBE_COUNT; i++) {
+    EEPROM.get(MIN_LEVEL + i * sizeof(minLevel[0]), minLevel[i]);
+    EEPROM.get(MAX_LEVEL + i * sizeof(maxLevel[0]), maxLevel[i]);
+  }
   EEPROM.get(SLEEP_TIME, sleepTime);
   EEPROM.get(MAX_DIFFERENCE, maxDifference);
 
   // Checking the recorded value (should only be useful on the first start)
-  if (isnan(sleepTime) || sleepTime == 0 || sleepTime > ESP.deepSleepMax()) {
+  if (isnan(sleepTime) || sleepTime <= 0 || sleepTime > ESP.deepSleepMax()) {
     sleepTime = DEFAULT_SLEEP_TIME;
+    EEPROM.put(SLEEP_TIME, sleepTime);
+    commit = true;
     Log.warningln(F("Set default sleep time"));
   }
   Log.noticeln(F("Sleep time %D s"), (sleepTime / 1e6));
 
-  Log.noticeln(F("Levels: %d - %d"), minLevel, maxLevel);
+  for (int i = 0; i < PROBE_COUNT; i++) {
+    if (minLevel[i] < CLOSEST || minLevel[i] > FARTHEST) {
+      Log.warningln(F("minLevel[%d] incorrect: %d. Resetting to default"), i, minLevel[i]);
+      minLevel[i] = CLOSEST;
+      EEPROM.put(MIN_LEVEL+i*sizeof(minLevel[0]), minLevel[i]);
+      commit = true;
+    }
 
-  if (isnan(maxDifference) || maxDifference == 0 || maxDifference > 100) {
+    if (maxLevel[i] < CLOSEST || maxLevel[i] > FARTHEST) {
+      Log.warningln(F("maxLevel[%d] incorrect: %d. Resetting to default"), i, maxLevel[i]);
+      maxLevel[i] = FARTHEST;
+      EEPROM.put(MAX_LEVEL+i*sizeof(maxLevel[0]), maxLevel[i]);
+      commit = true;
+    }
+
+    if (minLevel[i] == maxLevel[i]) {
+      Log.warningln(F("minLevel[%d] and maxLevel[%d] are the same: %d. Resetting to default"), i, i, maxLevel[i]);
+      minLevel[i] = CLOSEST;
+      maxLevel[i] = FARTHEST;
+      EEPROM.put(MIN_LEVEL+i*sizeof(minLevel[0]), minLevel[i]);
+      EEPROM.put(MAX_LEVEL+i*sizeof(maxLevel[0]), maxLevel[i]);
+      commit = true;
+    }
+
+    Log.noticeln(F("Levels[%d]: %d (deepest) - %d (highest)"), i, minLevel[i], maxLevel[i]);
+  }
+
+  if (isnan(maxDifference) || maxDifference == 0 || maxDifference > 1000) {
     Log.warningln(F("Set default max difference"));
     maxDifference = DEFAULT_MAX_DIFFERENCE;
     EEPROM.put(MAX_DIFFERENCE, maxDifference);
-    bool committed = EEPROM.commit();
-    if (!committed) {
-      Log.errorln("Failed to commit new value");
-    }
+    commit = true;
   }
 
   /***********************************
@@ -499,58 +650,14 @@ void setup() {
     rtcData.batteryAlertSent = false;
     rtcDirty = true;
     client.publish((ROOT_TOPIC + "/alert").c_str(), new byte[0], 0, true);
-  }  
-   
-  int waterLevel = getWaterLevel();
-  Log.noticeln("Distance: %d mm", waterLevel);
-
-  // Check that returned value makes sense
-  if (waterLevel < CLOSEST) {
-    Log.warningln("Distance too short for the sensor. Trying again.");
-    waterLevel = getWaterLevel();
   }
 
-  int i = 0;
-  while (abs(waterLevel - rtcData.lastMeasure) * 100 / waterLevel > 10 && i < 10) {
-    Log.warningln("There is more than 10%% difference with last measure. Trying again");
-    rtcData.lastMeasure = waterLevel;
-    waterLevel = getWaterLevel();
-    i++;
+  long waterLevel[PROBE_COUNT];
+  if (PROBE_COUNT >= 1) {
+    waterLevel[0] = getWaterLevel(&Serial, 0);
   }
-  
-  // Check that configuration values are correct
-  if (waterLevel > minLevel) {
-    Log.warningln("Measured water level is lower than configured level. Adapting setting to %d.", waterLevel);
-    // minimum level is lower than expected
-    EEPROM.put(MIN_LEVEL, waterLevel);
-    bool committed = EEPROM.commit();
-    if (!committed) {
-      Log.errorln("Failed to commit new value");
-    }
-  } 
-  
-  if (waterLevel < maxLevel && waterLevel > CLOSEST) {
-    Log.warningln("Measured water level is higher than configured level. Adapting setting to %d.", waterLevel);
-    // maximum level is higher than expected
-    EEPROM.put(MAX_LEVEL, waterLevel);
-    bool committed = EEPROM.commit();
-    if (!committed) {
-      Log.errorln("Failed to commit new value");
-    }
-  }
-
-  if (minLevel > FARTHEST) {
-    Log.warningln(F("Min level too far. Setting to %d mm"), FARTHEST);
-    EEPROM.put(MIN_LEVEL, FARTHEST);
-    bool committed = EEPROM.commit();
-    if (!committed) {
-      Log.errorln("Failed to commit new value");
-    }
-  }
-
-  // Making sure that both levels are different
-  if (minLevel == maxLevel) {
-    minLevel = maxLevel+1;
+  if (PROBE_COUNT >= 2) {
+    waterLevel[1] = getWaterLevel(&swSer, 1);
   }
 
   /***********************************
@@ -568,13 +675,16 @@ void setup() {
   mqttLog.setSuspend(false);
   client.loop();
 
-  if (waterLevel > CLOSEST && waterLevel < FARTHEST) {
+  for (int i = 0; i < PROBE_COUNT; i++) {
+    if (waterLevel[i] < CLOSEST || waterLevel[i] > FARTHEST) {
+      Log.warningln(F("Not reporting the measurement %d as it si invalid"), i);
+      continue;
+    }
+
     // compute percentage of filled volume
-    float filledLevel = (minLevel - waterLevel * 1.0) / (minLevel - maxLevel) * 100;
-    client.publish((ROOT_TOPIC + "/level").c_str(), (String(waterLevel)).c_str());
-    client.publish((ROOT_TOPIC + "/levelPercentage").c_str(), (String(filledLevel)).c_str());
-  } else {
-    Log.warningln(F("Not reporting the measurement as it si invalid"));
+    float filledLevel = (minLevel[i] - waterLevel[i] * 1.0) / (minLevel[i] - maxLevel[i]) * 100;
+    client.publish((ROOT_TOPIC + "/level" + String(i)).c_str(), (String(waterLevel[i])).c_str());
+    client.publish((ROOT_TOPIC + "/level" + String(i) + "Percentage").c_str(), (String(filledLevel)).c_str());
   }
 
   // Reporting voltage
@@ -585,6 +695,7 @@ void setup() {
   mqttLog.setSuspend(false);
   delay(50);
   client.loop();
+  delay(100);
 
   // Empty Wifi reception buffer
   while (espClient.available()) {
@@ -609,6 +720,12 @@ void setup() {
   WiFi.disconnect( true );
   delay(1);
   Serial.println("Disconnected");
+
+  if (commit) {
+    bool commited = EEPROM.commit();
+    Log.noticeln(F("New config committed: %T"), commited);
+  }
+
   saveRtc();
   EEPROM.end();
   ESP.deepSleepInstant(sleepTime, WAKE_RF_DISABLED);

@@ -1,13 +1,14 @@
-const float BATTERY_ALERT_THRESHOLD = 3.1;// V
-const float BATTERY_ALERT_REARM = 3.3;    // V
+const float BATTERY_ALERT_THRESHOLD = 3.1; // V
+const float BATTERY_ALERT_REARM = 3.3;     // V
 
-const uint8_t DEFAULT_MAX_DIFFERENCE = 10;// %
+const uint8_t DEFAULT_MAX_DIFFERENCE = 200;// mm
 
-const uint64_t DEFAULT_SLEEP_TIME = 5e6;  // us
+const uint64_t DEFAULT_SLEEP_TIME = 5e6;   // us
 
-const int CLOSEST = 200;                  // mm
-const int FARTHEST = 8000;                // mm
-const int SPEED_OF_SOUND = 330;           // m
+const int CLOSEST = 200;                   // mm
+const int FARTHEST = 8000;                 // mm
+const int SPEED_OF_SOUND = 330;            // m
+const byte PROBE_COUNT = 2;
 
 // Network credentials
 const char* WLAN_SSID = "Your Wifi SSID";

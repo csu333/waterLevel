@@ -37,7 +37,7 @@ size_t PBPrint::write(const uint8_t *buffer, size_t size) {
     }
 
     // Flush the end of the _buffer even if there is not \n
-    if (pos - i > 1) {
+    if (pos - start > 1) {
         client->publish(topic, &_buffer[start], pos - start);
         sent += pos - start;
     }
