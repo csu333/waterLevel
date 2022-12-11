@@ -6,6 +6,7 @@
    * Battery voltage from zenz: https://github.com/LilyGO/LILYGO-T-OI/issues/12
    * Distance measurement by Probots: https://tutorials.probots.co.in/communicating-with-a-waterproof-ultrasonic-sensor-aj-sr04m-jsn-sr04t/
 *********/
+#include <NTPClient.h>
 #include <ESP8266WiFi.h>
 #include <PubSubClient.h>
 #include <EEPROM.h>
@@ -21,9 +22,9 @@ char msg[MSG_BUFFER_SIZE];
 
 const int analogInPin = A0;  // ESP8266 Analog Pin ADC0 = A0
 
-#define rxPin 0
-#define txPin 2
-#define gndPin 12
+#define rxPin0 0
+#define txPin0 2
+#define gndPin0 12
 
 /****************************************************************************************************************/
 
@@ -85,6 +86,8 @@ uint8_t maxDifference;
 bool batteryAlertSent = false;
 bool waterLevelAlertSent = false;
 
+long wifiStart;
+
 bool rtcLoaded = false;
 bool rtcValid = false;
 bool rtcDirty = false;
@@ -115,20 +118,18 @@ void initWiFi() {
   }
   else {
     // The RTC data was not valid, so make a regular connection
-    Log.warningln(F("Number of connection failure too high (%). Using regular connection instead"), rtcData.failedConnection);
+    Log.warningln(F("Number of connection failure too high (%d). Using regular connection instead"), rtcData.failedConnection);
     WiFi.begin( WLAN_SSID, WLAN_PASSWD );
   }
+
+  wifiStart = millis();
+
   WiFi.config(staticIP, gateway, subnet);
   Log.noticeln("Waiting WiFi connection");
-  
-  // Wait for successful connection
-  int retries = 0;
-  while (WiFi.status() != WL_CONNECTED) {
-    if (++retries % 20 == 0) {
-      Serial.print('.');
-    }
 
-    if (retries == 100 && rtcValid) {
+  // Wait for successful connection
+  while (WiFi.status() != WL_CONNECTED) {
+    if ((millis() - wifiStart) >= 10000 && rtcValid) {
       // Quick connect is not working, reset WiFi and try regular connection
       Log.warningln(F("Fast connect failed"));
       Log.noticeln(F("Channel: %d"), rtcData.channel); 
@@ -142,7 +143,7 @@ void initWiFi() {
       WiFi.begin( WLAN_SSID, WLAN_PASSWD );
     }
     
-    if (retries >= 600) {
+    if ((millis() - wifiStart) >= 20000) {
       Log.errorln(F("Something happened, giving up"));
       // Giving up after 30 seconds and going back to sleep
       WiFi.disconnect( true );
@@ -159,8 +160,9 @@ void initWiFi() {
     
     delay(50);
   }
-  Serial.println("");
+
   Log.noticeln(F("RSSI: %d dB"), WiFi.RSSI()); 
+
   if (rtcData.failedConnection > 0) {
     Log.warningln(F("Wifi connected after %d failures"), rtcData.failedConnection);
   }
@@ -178,12 +180,13 @@ void initWiFi() {
  * MQTT *
 \********/
 
-void reconnect() {
+bool reconnect() {
   // Init MQTT
   client.setServer(MQTT_SERVER, 1883);
+  int i = 4;
   
   // Loop until we're reconnected
-  while (!client.connected()) {
+  while (!client.connected() && i > 0) {
     Log.noticeln(F("Connecting to MQTT"));
 
     // Create a random client ID
@@ -201,7 +204,15 @@ void reconnect() {
       // Wait 5 seconds before retrying
       delay(5000);
     }
+    i--;
   }
+
+  if (i <= 0) {
+    Log.warningln(F("Failed to send MQTT message"));
+    return false;
+  }
+
+  return true;
 }
 
 void callback(char* topic, byte* payload, unsigned int length) {
@@ -367,32 +378,41 @@ uint32_t calculateCRC32( const uint8_t *data, size_t length ) {
 }
 
 bool loadRtc() {
-  if (!rtcLoaded) {
-    // Try to read WiFi settings from RTC memory
-    if( ESP.rtcUserMemoryRead( 0, (uint32_t*)&rtcData, sizeof( rtcData ) ) ) {
-      rtcLoaded = true;
-      // Calculate the CRC of what we just read from RTC memory, but skip the first 4 bytes as that's the checksum itself.
-      uint32_t crc = calculateCRC32( ((uint8_t*)&rtcData) + 4, sizeof( rtcData ) - 4 );
-      if( crc == rtcData.crc32 ) {
-        rtcValid = true;
-
-        // Load values from RTC memory
-        batteryAlertSent = rtcData.batteryAlertSent;
-        waterLevelAlertSent = rtcData.waterLevelAlertSent;
-
-        // Restore logging buffer
-        mqttLog.pos = rtcData.bufferPosition;
-        memcpy(mqttLog._buffer, rtcData.logBuffer, min(sizeof(rtcData.logBuffer), (unsigned int)mqttLog.pos));
-        
-        Log.noticeln("RTC load success");
-      } else {
-        Log.errorln("Unable to reload values from RTC: CRC failed");
-      }
-    } else {
-        Log.errorln("Unable to reload values from RTC");
-    }
+  if (rtcLoaded) {
+    return true;
   }
-  return rtcValid;
+  
+  // Try to read WiFi settings from RTC memory
+  bool readSucceed = ESP.rtcUserMemoryRead( 0, (uint32_t*)&rtcData, sizeof( rtcData ) );
+  rtcLoaded = true;
+
+  if (!readSucceed) {
+    rtcData = { 0, 0, 0, 128, 0, 0, 3, 0, 0, {} };
+    Log.errorln("Unable to read values from RTC");
+    return false;
+  }
+    
+  // Calculate the CRC of what we just read from RTC memory, but skip the first 4 bytes as that's the checksum itself.
+  uint32_t crc = calculateCRC32( ((uint8_t*)&rtcData) + 4, sizeof( rtcData ) - 4 );
+  if( crc != rtcData.crc32 ) {
+    rtcData = { 0, 0, 0, 128, 0, 0, 3, 0, 0, {} };
+    Log.errorln("Unable to reload values from RTC: CRC failed");
+    return false;
+  }
+
+  rtcValid = true;
+
+  // Load values from RTC memory
+  batteryAlertSent = rtcData.batteryAlertSent;
+  waterLevelAlertSent = rtcData.waterLevelAlertSent;
+
+  // Restore logging buffer
+  mqttLog.pos = rtcData.bufferPosition;
+  memcpy(mqttLog._buffer, rtcData.logBuffer, min(sizeof(rtcData.logBuffer), (unsigned int)mqttLog.pos));
+  
+  Log.noticeln("RTC load success");
+
+  return true;
 }
 
 void saveRtc() {
@@ -421,18 +441,24 @@ int getWaterReading(Stream* serial, byte index) {
   byte startByte, h_data, m_data, l_data, sum;
   byte buf[] = { 0, 0, 0, 0 };
 
+  Log.noticeln(F("getWaterReading"));
+
   // Swap Serial from USB to RX/TX pins
   if (serial == &Serial) {
     Log.traceln(F("Trying to use Serial. Swapping to pins 13/15"));
     Serial.flush();
     Serial.swap();
-  } 
+  }
+
+  // Empty buffer
+  while (serial->available() > 0) {
+    int inByte = serial->read();
+  }
 
   // Requesting reading
   serial->write(0x01);
   // Wait for the reply to be ready
   delay((FARTHEST / SPEED_OF_SOUND) + 1);
-  delay(30);
 
   serial->readBytes(buf, 4);
   startByte = buf[0];
@@ -445,7 +471,7 @@ int getWaterReading(Stream* serial, byte index) {
 
   if(startByte != 255){
     Log.errorln(F("Invalid header: %d "), startByte);
-    return distance;
+    return -1;
   }
 
   h_data = buf[1];
@@ -459,6 +485,11 @@ int getWaterReading(Stream* serial, byte index) {
 
   delay(1);
   Log.verboseln(F("Remaining in buffer: %d"), serial->available());
+
+  if (distance < CLOSEST || distance > FARTHEST) {
+    Log.errorln(F("Reading beyond bounds (%d - %d): %d"), CLOSEST, FARTHEST, distance);
+    return -1;
+  }
   
   return distance;
 }
@@ -498,6 +529,11 @@ int getWaterLevel(Stream* serial, byte index) {
     i++;
   }
 
+  if (abs(distance - rtcData.lastMeasure[index]) > maxDifference) {
+    Log.warningln(F("Distance not stabilising. Giving up"));
+    return -1;
+  }
+
   // Check that configuration values are correct
   if (distance > minLevel[index]) {
     Log.warningln("Measured water level is lower than configured level. Adapting setting probe %d to %d.", index, distance);
@@ -513,19 +549,6 @@ int getWaterLevel(Stream* serial, byte index) {
     commit = true;
   }
   
-  if (distance < maxLevel[index]) {
-    Log.warningln("Measured water level is higher than configured level. Adapting setting probe %d to %d.", index, distance);
-    // maximum level is higher than expected
-    maxLevel[index] = distance;
-    EEPROM.put(MAX_LEVEL+index*sizeof(maxLevel[0]), distance);
-    commit = true;
-  }
-
-  if (maxLevel[index] < CLOSEST) {
-    Log.warningln(F("Max level too close. Setting probe %d to %d mm"), index, CLOSEST);
-    EEPROM.put(MAX_LEVEL+index*sizeof(maxLevel), CLOSEST);
-    commit = true;
-  }
   if (minLevel[index] == maxLevel[index]) {
     minLevel[index] = maxLevel[index] + 1;
     Log.warningln(F("Min and max levels are the sameon probe %d. Min set to %d mm"), index, minLevel[index]);
@@ -534,6 +557,30 @@ int getWaterLevel(Stream* serial, byte index) {
   }
   
   return distance;
+}
+
+void printPrefix(Print* _logOutput, int logLevel) {
+    printTimestamp(_logOutput);
+    //printLogLevel (_logOutput, logLevel);
+}
+
+void printTimestamp(Print* _logOutput) {
+
+  // Division constants
+  const unsigned long MSECS_PER_SEC       = 1000;
+
+  // Total time
+  const unsigned long msecs               =  millis();
+  const unsigned long secs                =  msecs / MSECS_PER_SEC;
+
+  // Time in components
+  const unsigned int MilliSeconds        =  msecs % MSECS_PER_SEC;
+  const unsigned int Seconds             =  secs  % 100 ;
+
+  // Time as string
+  char timestamp[16];
+  sprintf(timestamp, "%d-%02d.%03d ", rtcData.failedConnection, Seconds, MilliSeconds);
+  _logOutput->print(timestamp);
 }
 
 /****************************************************************************************************************/
@@ -547,13 +594,17 @@ void setup() {
   WiFi.mode( WIFI_OFF );
   WiFi.forceSleepBegin();
   delay( 1 );
-  pinMode(gndPin, OUTPUT);           // set pin to input
-  digitalWrite(gndPin, LOW);
+
+  // Init pin for second probe
+  pinMode(rxPin0, INPUT);
+  pinMode(txPin0, OUTPUT);
+
+  Log.setPrefix(printPrefix); // set prefix similar to NLog
   
   // initialize serial communication at 9600
   // It is mandatory to be able to read data comming from the ultrasound sensor
   Serial.begin(9600);
-  swSer.begin(9600, SWSERIAL_8N1, rxPin, txPin, false);
+  swSer.begin(9600, SWSERIAL_8N1, rxPin0, txPin0, false);
   if (!swSer) { // If the object did not initialize, then its configuration is invalid
     Log.errorln("Invalid SoftwareSerial pin configuration, check config"); 
   } 
@@ -577,7 +628,7 @@ void setup() {
   // Comment next line if you don’t want logging by MQTT
   bp->addOutput(&mqttLog);
   
-  Log.noticeln(F("Logging ready"));
+  Log.traceln(F("Logging ready"));  
 
   // Read config from EEPROM
   EEPROM.begin(EEPROM_SIZE);
@@ -667,59 +718,63 @@ void setup() {
   // Init WiFi (as late as possible to save power)
   initWiFi();
 
+  bool connected = client.connected();
+
   // Connect to MQTT
-  if (!client.connected()) {
-    reconnect();
+  if (!connected) {
+    connected = reconnect();
   }
   
-  mqttLog.setSuspend(false);
-  client.loop();
+  if (connected) {
+    mqttLog.setSuspend(false);
+    client.loop();
 
-  for (int i = 0; i < PROBE_COUNT; i++) {
-    if (waterLevel[i] < CLOSEST || waterLevel[i] > FARTHEST) {
-      Log.warningln(F("Not reporting the measurement %d as it si invalid"), i);
-      continue;
+    for (int i = 0; i < PROBE_COUNT; i++) {
+      if (waterLevel[i] < CLOSEST || waterLevel[i] > FARTHEST) {
+        Log.warningln(F("Not reporting the measurement %d as it si invalid"), i);
+        continue;
+      }
+
+      // compute percentage of filled volume
+      float filledLevel = (minLevel[i] - waterLevel[i] * 1.0) / (minLevel[i] - maxLevel[i]) * 100;
+      client.publish((ROOT_TOPIC + "/level" + String(i)).c_str(), (String(waterLevel[i])).c_str());
+      client.publish((ROOT_TOPIC + "/level" + String(i) + "Percentage").c_str(), (String(filledLevel)).c_str());
     }
 
-    // compute percentage of filled volume
-    float filledLevel = (minLevel[i] - waterLevel[i] * 1.0) / (minLevel[i] - maxLevel[i]) * 100;
-    client.publish((ROOT_TOPIC + "/level" + String(i)).c_str(), (String(waterLevel[i])).c_str());
-    client.publish((ROOT_TOPIC + "/level" + String(i) + "Percentage").c_str(), (String(filledLevel)).c_str());
-  }
+    // Reporting voltage
+    client.publish((ROOT_TOPIC + "/voltage").c_str(), (String(batteryLevel)).c_str());
+    client.loop();
 
-  // Reporting voltage
-  client.publish((ROOT_TOPIC + "/voltage").c_str(), (String(batteryLevel)).c_str());
-  client.loop();
-
-  // Make sure that buffered messages got sent
-  mqttLog.setSuspend(false);
-  delay(50);
-  client.loop();
-  delay(100);
-
-  // Empty Wifi reception buffer
-  while (espClient.available()) {
+    // Make sure that buffered messages got sent
     mqttLog.setSuspend(false);
-    delay(10);
+    delay(50);
     client.loop();
-  }
+    delay(100);
 
-  if (removeConfigMsg) {
-    // This config message is intended for me only so I can delete it
-    Log.noticeln(F("Config message processed"));
-    client.publish((ROOT_TOPIC + "/config").c_str(), new byte[0], 0, true);
-    client.loop();
-    Log.traceln("Message removed from topic");
-  }
+    // Empty Wifi reception buffer
+    while (espClient.available()) {
+      mqttLog.setSuspend(false);
+      delay(10);
+      client.loop();
+    }
 
-  // Preparing for sleep
-  client.unsubscribe((ROOT_TOPIC + "/config").c_str());
-  client.disconnect();
-  delay(50);
+    if (removeConfigMsg) {
+      // This config message is intended for me only so I can delete it
+      Log.noticeln(F("Config message processed"));
+      client.publish((ROOT_TOPIC + "/config").c_str(), new byte[0], 0, true);
+      client.loop();
+      Log.traceln("Message removed from topic");
+      delay(10);
+      client.loop();
+    }
+
+    // Preparing for sleep
+    client.unsubscribe((ROOT_TOPIC + "/config").c_str());
+    client.disconnect();
+    delay(5);
+  }
  
   WiFi.disconnect( true );
-  delay(1);
-  Serial.println("Disconnected");
 
   if (commit) {
     bool commited = EEPROM.commit();
@@ -728,6 +783,7 @@ void setup() {
 
   saveRtc();
   EEPROM.end();
+  
   ESP.deepSleepInstant(sleepTime, WAKE_RF_DISABLED);
 
   Serial.println(F("What... I'm not asleep?!?"));  // it will never get here
@@ -735,5 +791,5 @@ void setup() {
 }
 
 void loop() {
-
+  Serial.println(F("What... I'm not asleep?!?"));  // it will never get here
  }
