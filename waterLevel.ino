@@ -126,15 +126,17 @@ void initWiFi() {
 
   WiFi.config(staticIP, gateway, subnet);
   Log.noticeln("Waiting WiFi connection");
+  bool connectReset = false;
 
   // Wait for successful connection
   while (WiFi.status() != WL_CONNECTED) {
-    if ((millis() - wifiStart) >= 10000 && rtcValid) {
+    if ((millis() - wifiStart) >= 10000 && rtcValid && !connectReset) {
       // Quick connect is not working, reset WiFi and try regular connection
       Log.warningln(F("Fast connect failed"));
       Log.noticeln(F("Channel: %d"), rtcData.channel); 
       Log.noticeln(F("BSSID: %x:%x:%x:%x:%x:%x"), rtcData.bssid[0], rtcData.bssid[1], rtcData.bssid[2], rtcData.bssid[3], rtcData.bssid[4], rtcData.bssid[5]);
       WiFi.disconnect( true );
+      connectReset = true;
       delay( 50 );
       WiFi.forceSleepBegin();
       delay( 100 );
@@ -536,7 +538,7 @@ int getWaterLevel(Stream* serial, byte index) {
 
   // Check that configuration values are correct
   if (distance > minLevel[index]) {
-    Log.warningln("Measured water level is lower than configured level. Adapting setting probe %d to %d.", index, distance);
+    Log.warningln("Measured water level is lower than minimum configured level. Adapting setting probe %d to %d.", index, distance);
     // minimum level is lower than expected
     minLevel[index] = distance;
     EEPROM.put(MIN_LEVEL+index*sizeof(minLevel[0]), distance);
@@ -546,6 +548,20 @@ int getWaterLevel(Stream* serial, byte index) {
   if (minLevel[index] > FARTHEST) {
     Log.warningln(F("Min level too far. Setting probe %d to %d mm"), index, FARTHEST);
     EEPROM.put(MIN_LEVEL+index*sizeof(minLevel[0]), FARTHEST);
+    commit = true;
+  }
+
+  if (distance < maxLevel[index]) {
+    Log.warningln("Measured water level is higher than maximum configured level. Adapting setting probe %d to %d.", index, distance);
+    // maximum level is higher than expected
+    maxLevel[index] = distance;
+    EEPROM.put(MAX_LEVEL+index*sizeof(maxLevel[0]), distance);
+    commit = true;
+  }
+
+  if (maxLevel[index] < CLOSEST) {
+    Log.warningln(F("Max level too close. Setting probe %d to %d mm"), index, CLOSEST);
+    EEPROM.put(MAX_LEVEL+index*sizeof(maxLevel[0]), CLOSEST);
     commit = true;
   }
   
