@@ -57,7 +57,7 @@ If you configure more than one probe, you can use indexed minLevel and maxLevel:
 
  Make sure you send the config with the **Retain** option. The values are read at the end of the reading cycle so it will take up to 5 minutes for the settings to apply. To speed up the process, you can push the reset button to trigger a new cycle.
 
-### Remote update
+### Remote update (buggy)
 You can update the firmware remotely by sending the url of the firmware on topic **ROOT_TOPIC/update/url**. Only works in http port 80.
 
 ## Hardware setup

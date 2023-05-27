@@ -2,7 +2,7 @@
  * WIFI *
 \********/
 
-void initWiFi() {
+bool initWiFi() {
   // Disable persistence in flash for power savings
   WiFi.persistent(false);
   
@@ -10,6 +10,7 @@ void initWiFi() {
   delay( 1 );
   
   loadRtc();
+  bool fastConnect = false;
 
   // Connect to WiFi
   WiFi.mode(WIFI_STA);
@@ -17,6 +18,7 @@ void initWiFi() {
     // The RTC data was good, make a quick connection
     Log.traceln(F("Using fast WiFi connect"));
     WiFi.begin(WLAN_SSID, WLAN_PASSWD, rtcData.channel, rtcData.bssid, true);
+    fastConnect = true;
   }
   else {
     // The RTC data was not valid, so make a regular connection
@@ -32,11 +34,11 @@ void initWiFi() {
 
   // Wait for successful connection
   while (WiFi.status() != WL_CONNECTED) {
-    if ((millis() - wifiStart) >= 10000 && rtcValid && !connectReset) {
+    if ((millis() - wifiStart) >= 10000 && fastConnect) {
       // Quick connect is not working, reset WiFi and try regular connection
-      Log.warningln(F("Fast connect failed"));
-      Log.noticeln(F("Channel: %d"), rtcData.channel); 
-      Log.noticeln(F("BSSID: %x:%x:%x:%x:%x:%x"), rtcData.bssid[0], rtcData.bssid[1], rtcData.bssid[2], rtcData.bssid[3], rtcData.bssid[4], rtcData.bssid[5]);
+      Log.warningln(F("Fast connect failed with info:"));
+      Log.noticeln(F(" - Channel: %d"), rtcData.channel); 
+      Log.noticeln(F(" - BSSID: %x:%x:%x:%x:%x:%x"), rtcData.bssid[0], rtcData.bssid[1], rtcData.bssid[2], rtcData.bssid[3], rtcData.bssid[4], rtcData.bssid[5]);
       WiFi.disconnect( true );
       connectReset = true;
       delay( 50 );
@@ -45,8 +47,12 @@ void initWiFi() {
       WiFi.forceSleepWake();
       delay( 50 );
       WiFi.begin( WLAN_SSID, WLAN_PASSWD );
+      break;
     }
-    
+    delay(50);
+  }
+
+  while (WiFi.status() != WL_CONNECTED) {
     if ((millis() - wifiStart) >= 20000) {
       Log.errorln(F("Something happened, giving up"));
       // Giving up after 30 seconds and going back to sleep
@@ -56,10 +62,7 @@ void initWiFi() {
       
       rtcData.failedConnection++;
       rtcDirty = true;
-      saveRtc();
-      
-      EEPROM.end();
-      ESP.deepSleepInstant(sleepTime, WAKE_RF_DISABLED);
+      return false;
     }
     
     delay(50);
@@ -76,4 +79,6 @@ void initWiFi() {
   rtcData.failedConnection = 0;
   memcpy( rtcData.bssid, WiFi.BSSID(), 6 ); // Copy 6 bytes of BSSID (AP's MAC address)
   rtcDirty = true;
+
+  return (WiFi.status() == WL_CONNECTED);
 }
