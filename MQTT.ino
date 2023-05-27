@@ -5,14 +5,14 @@
 bool reconnect() {
   // Init MQTT
   client.setServer(MQTT_SERVER, 1883);
-  int i = 4;
+  int i = 3;
   
   // Loop until we're reconnected
   while (!client.connected() && i > 0) {
     Log.noticeln(F("Connecting to MQTT"));
 
     // Create a random client ID
-    String clientId = "ESP8266Client-";
+    String clientId = "waterLevel-";
     clientId += String(random(0xffff), HEX);
     
     // Attempt to connect
@@ -20,11 +20,12 @@ bool reconnect() {
       // ... and resubscribe
       client.setCallback(callback);
       client.subscribe((ROOT_TOPIC + "/config").c_str());
+      client.subscribe((ROOT_TOPIC + "/update/url").c_str());
       delay(100);
     } else {
-      Log.errorln(F("Failed, rc=%d try again in 5 seconds"), client.state());
-      // Wait 5 seconds before retrying
-      delay(5000);
+      Log.errorln(F("Failed, rc=%d try again in 1 seconds"), client.state());
+      // Wait 1 seconds before retrying
+      delay(1000);
     }
     i--;
   }
@@ -38,13 +39,31 @@ bool reconnect() {
 }
 
 void callback(char* topic, byte* payload, unsigned int length) {
+  if (length == 0) {
+    return;
+  }
+
   // Stop sending log to MQTT to avoid deadlocks
   mqttLog.setSuspend(true);
-  
+
+  String _topic = String(topic);
+  Log.noticeln(F("Message received on topic: %s"), _topic.c_str());
+
+  if (_topic.equals(ROOT_TOPIC + "/update/url") == 1) {
+      updateMsg(topic, payload, length);
+  }
+
+  if (_topic.equals(ROOT_TOPIC + "/config") == 1) {
+      configMsg(topic, payload, length);
+  }
+}
+
+void configMsg(char* topic, byte* payload, unsigned int length) {
+ 
   /* Process the configuration command */
 
   // Allocate the JSON document
-  const size_t capacity = JSON_OBJECT_SIZE(10);
+  const size_t capacity = JSON_OBJECT_SIZE(50);
   DynamicJsonDocument doc(capacity);
 
   // Parse JSON object
@@ -65,13 +84,13 @@ void callback(char* topic, byte* payload, unsigned int length) {
   for (JsonPair p : conf) {
     
     const char* key = p.key().c_str();
+    Log.traceln(F("Processing: { \"%s\": %s }"), key, p.value().as<String>().c_str());
+    
+    // Check for indexed keys
+
     char cKey[20];
     strncpy(cKey, key, sizeof(cKey) - 1);
     String sKey = String(cKey);
-    String value = p.value().as<String>();
-    Log.traceln(F("Processing: { \"%s\": %s }"), sKey, value);
-    
-    // Check for indexed keys
     int len = strlen(key);
     byte index = 0;
     if (len > 3 && key[len-3] == '[' && isDigit(key[len-2]) && key[len-1] == ']'){
@@ -176,3 +195,22 @@ void callback(char* topic, byte* payload, unsigned int length) {
 
   removeConfigMsg = true;
 }
+
+void updateMsg(char* topic, byte* payload, unsigned int length) {
+  if (length == 0) {
+    return;
+  }
+
+  payload[length] = '\0';
+  String url = String((char*)payload);
+  Log.noticeln(F("Received an OTA message. Preparing to download from %s"), url.c_str());
+
+  if (update(url, 80)) {
+    Log.noticeln(F("Ready to restart"));
+    client.publish((ROOT_TOPIC + "/update/url").c_str(), new byte[0], 0, true);
+    delay(1000);
+    ESP.restart();
+  }
+}
+
+
