@@ -1,14 +1,14 @@
 #include <Print.h>
 #include <PubSubClient.h>
 
-class PBPrint : public Print
+class PubSubPrint : public Print
 {
     private:
         PubSubClient* client;
         const char* topic;
         bool suspended = false;
     public:
-        PBPrint(PubSubClient* pbClient, const char* pbTopic);
+        PubSubPrint(PubSubClient* pbClient, const char* pbTopic);
 
         size_t write(const uint8_t *buffer, size_t size) override;
         size_t write(uint8_t c) override;

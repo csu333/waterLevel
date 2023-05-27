@@ -13,8 +13,9 @@
 #include <ArduinoJson.h>
 #include <ArduinoLog.h>
 #include <SoftwareSerial.h>
+#include <LittleFS.h>
 #include "BufferPrint.h"
-#include "PBPrint.h"
+#include "PubSubPrint.h"
 #include "config.h"
 
 #define MSG_BUFFER_SIZE  (50)
@@ -71,7 +72,7 @@ bool removeConfigMsg = false;
 // Initializes the espClient. You should change the espClient name if you have multiple ESPs running in your home automation system
 WiFiClient espClient;
 PubSubClient client(espClient);
-PBPrint mqttLog = PBPrint(&client, "");
+PubSubPrint mqttLog = PubSubPrint(&client, "");
 
 SoftwareSerial swSer;
 
@@ -121,7 +122,7 @@ void setup() {
     ; // wait for serial port to connect. Needed for native USB port only
   }
 
-  mqttLog = PBPrint(&client, LOG_TOPIC.c_str());
+  mqttLog = PubSubPrint(&client, LOG_TOPIC.c_str());
   mqttLog.setSuspend(true);
   
   if (!loadRtc()) {
@@ -224,16 +225,11 @@ void setup() {
    */
 
   // Init WiFi (as late as possible to save power)
-  initWiFi();
-
-  bool connected = client.connected();
-
-  // Connect to MQTT
-  if (!connected) {
-    connected = reconnect();
+  if (!initWiFi()) {
+    startSleep();
   }
   
-  if (connected) {
+  if (reconnect()) {
     mqttLog.setSuspend(false);
     client.loop();
 
@@ -284,6 +280,10 @@ void setup() {
  
   WiFi.disconnect( true );
 
+  startSleep();
+}
+
+void startSleep() {
   if (commit) {
     bool commited = EEPROM.commit();
     Log.noticeln(F("New config committed: %T"), commited);

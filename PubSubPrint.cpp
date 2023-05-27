@@ -1,11 +1,11 @@
-#include "PBPrint.h"
+#include "PubSubPrint.h"
 
-PBPrint::PBPrint(PubSubClient* pbClient, const char* pbTopic) {
+PubSubPrint::PubSubPrint(PubSubClient* pbClient, const char* pbTopic) {
   client = pbClient;
   topic = pbTopic;
 }
 
-size_t PBPrint::write(const uint8_t *buffer, size_t size) {
+size_t PubSubPrint::write(const uint8_t *buffer, size_t size) {
     
     // Buffer incomplete messages and messages that arrive while the printer is suspended
     if (size > 0 && (suspended || buffer[size - 1] != '\n')) {
@@ -52,7 +52,7 @@ size_t PBPrint::write(const uint8_t *buffer, size_t size) {
     return sent;
 }
 
-size_t PBPrint::write(uint8_t c) {
+size_t PubSubPrint::write(uint8_t c) {
     // Ignore empty messages
     if (c == '\n' && (pos == 0 || (pos == 1 && _buffer[0] < 32))) {
       return 0;
@@ -63,7 +63,7 @@ size_t PBPrint::write(uint8_t c) {
     return write(buffer, 1);
 }
 
-void PBPrint::setSuspend(bool suspend) {
+void PubSubPrint::setSuspend(bool suspend) {
   suspended = suspend;
   
   if (!suspended) {
