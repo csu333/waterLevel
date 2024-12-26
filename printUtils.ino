@@ -18,6 +18,6 @@ void printTimestamp(Print* _logOutput) {
 
   // Time as string
   char timestamp[16];
-  sprintf(timestamp, "%d-%02d.%03d ", rtcData.failedConnection, Seconds, MilliSeconds);
+  sprintf(timestamp, "%05d-%02d.%03d ", run, Seconds, MilliSeconds);
   _logOutput->print(timestamp);
 }

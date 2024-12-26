@@ -1,18 +1,20 @@
+#include <sys/_stdint.h>
+#include <stdlib.h>
 #include "BufferPrint.h"
 
 BufferPrint::BufferPrint(){
-  _buffer = new uint8_t[495];
+  _buffer = (uint8_t *) malloc(1024);
   bufferSize = sizeof(_buffer);
   output = new Print*[4];
 }
 
-BufferPrint::BufferPrint(uint8_t *buffer[]){
-  _buffer = (uint8_t*)buffer;
+BufferPrint::BufferPrint(uint8_t * buffer[]){
+  _buffer = (uint8_t *)buffer;
   bufferSize = sizeof(buffer);
   output = new Print*[4];
 }
 
-size_t BufferPrint::write(const uint8_t *buffer, size_t size) {
+size_t BufferPrint::write(const uint8_t * buffer, size_t size) {
 
     // Shift buffer to make room for new message
     if (pos + size > bufferSize) {
@@ -25,25 +27,18 @@ size_t BufferPrint::write(const uint8_t *buffer, size_t size) {
 
     memcpy(&_buffer[pos], buffer, size);
     pos += size;
-    if (size == 1) {
-      for (int i = 0; i < outputCount; i++) {
-        output[i]->write(buffer[0]);
-      }
-    } else {
-      for (int i = 0; i < outputCount; i++) {
-        output[i]->write(buffer, size);
-      }
+    for (int i = 0; i < outputCount; i++) {
+      output[i]->write(buffer, size);
     }
     
     return size;
 }
 
 size_t BufferPrint::write(uint8_t c) {
-  uint8_t buffer[] = { c };
-  return BufferPrint::write(buffer, 1);
+  return BufferPrint::write(&c, 1);
 }
 
-bool BufferPrint::addOutput(Print* printer) {
+bool BufferPrint::addOutput(Print * printer) {
   if (outputCount >= sizeof(output)) {
     return false;
   }
@@ -55,4 +50,24 @@ bool BufferPrint::addOutput(Print* printer) {
   }
 
   return false;
+}
+
+bool BufferPrint::removeOutput(Print* printer) {
+  bool found = false;
+  for (int i = 0; i <= outputCount; i++) {
+    if (output[i] == printer) {
+      found = true;
+      for (int j = i; j <= outputCount - 1; j++) {
+        output[j] = output[j + 1];
+      }
+      outputCount--;
+    }
+  }
+  return found;
+}
+
+void BufferPrint::flush() {
+  for (int i = 0; i < outputCount; i++) {
+    output[i]->flush();
+  }
 }

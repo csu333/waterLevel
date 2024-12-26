@@ -6,23 +6,30 @@ bool initWiFi() {
   // Disable persistence in flash for power savings
   WiFi.persistent(false);
   
-  WiFi.forceSleepWake();
+  WiFi.setSleep(false);
   delay( 1 );
   
-  loadRtc();
   bool fastConnect = false;
 
   // Connect to WiFi
   WiFi.mode(WIFI_STA);
-  if( rtcValid && rtcData.failedConnection < 4) {
+
+  if( rtcValid && failedConnection < 4) {
     // The RTC data was good, make a quick connection
     Log.traceln(F("Using fast WiFi connect"));
-    WiFi.begin(WLAN_SSID, WLAN_PASSWD, rtcData.channel, rtcData.bssid, true);
+    WiFi.begin(WLAN_SSID, WLAN_PASSWD, channel, bssid, true);
     fastConnect = true;
   }
-  else {
+
+  if( failedConnection >= 4 ) {
     // The RTC data was not valid, so make a regular connection
-    Log.warningln(F("Number of connection failure too high (%d). Using regular connection instead"), rtcData.failedConnection);
+    Log.warningln(F("Number of connection failure too high (%d). Using regular connection instead"), failedConnection);
+    WiFi.begin( WLAN_SSID, WLAN_PASSWD );
+  }
+
+  if( !rtcValid ) {
+    // The RTC data was not valid, so make a regular connection
+    Log.warningln(F("This is the first initialisation after reset"));
     WiFi.begin( WLAN_SSID, WLAN_PASSWD );
   }
 
@@ -32,19 +39,19 @@ bool initWiFi() {
   Log.noticeln("Waiting WiFi connection");
   bool connectReset = false;
 
-  // Wait for successful connection
+  // Try first with a fast connection
   while (WiFi.status() != WL_CONNECTED) {
     if ((millis() - wifiStart) >= 10000 && fastConnect) {
       // Quick connect is not working, reset WiFi and try regular connection
       Log.warningln(F("Fast connect failed with info:"));
-      Log.noticeln(F(" - Channel: %d"), rtcData.channel); 
-      Log.noticeln(F(" - BSSID: %x:%x:%x:%x:%x:%x"), rtcData.bssid[0], rtcData.bssid[1], rtcData.bssid[2], rtcData.bssid[3], rtcData.bssid[4], rtcData.bssid[5]);
+      Log.noticeln(F(" - Channel: %d"), channel); 
+      Log.noticeln(F(" - BSSID: %x:%x:%x:%x:%x:%x"), bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5]);
       WiFi.disconnect( true );
       connectReset = true;
       delay( 50 );
-      WiFi.forceSleepBegin();
+      WiFi.setSleep(true);
       delay( 100 );
-      WiFi.forceSleepWake();
+      WiFi.setSleep(false);
       delay( 50 );
       WiFi.begin( WLAN_SSID, WLAN_PASSWD );
       break;
@@ -52,6 +59,7 @@ bool initWiFi() {
     delay(50);
   }
 
+  // If it didn't work, try a standard connection
   while (WiFi.status() != WL_CONNECTED) {
     if ((millis() - wifiStart) >= 20000) {
       Log.errorln(F("Something happened, giving up"));
@@ -60,8 +68,7 @@ bool initWiFi() {
       delay( 1 );
       WiFi.mode( WIFI_OFF );
       
-      rtcData.failedConnection++;
-      rtcDirty = true;
+      failedConnection++;
       return false;
     }
     
@@ -70,15 +77,19 @@ bool initWiFi() {
 
   Log.noticeln(F("RSSI: %d dB"), WiFi.RSSI()); 
 
-  if (rtcData.failedConnection > 0) {
-    Log.warningln(F("Wifi connected after %d failures"), rtcData.failedConnection);
+  if (connectReset) {
+    Log.noticeln(F("New BSSID: %x:%x:%x:%x:%x:%x"), bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5]);
+  }
+
+  if (failedConnection > 0) {
+    Log.warningln(F("Wifi connected after %d failures"), failedConnection);
   }
 
   // Write current connection info back to RTC
-  rtcData.channel = WiFi.channel();
-  rtcData.failedConnection = 0;
-  memcpy( rtcData.bssid, WiFi.BSSID(), 6 ); // Copy 6 bytes of BSSID (AP's MAC address)
-  rtcDirty = true;
+  channel = WiFi.channel();
+  failedConnection = 0;
+  memcpy( bssid, WiFi.BSSID(), 6 ); // Copy 6 bytes of BSSID (AP's MAC address)
+  rtcValid = true;
 
   return (WiFi.status() == WL_CONNECTED);
 }

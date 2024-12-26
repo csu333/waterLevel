@@ -21,7 +21,9 @@ bool reconnect() {
       client.setCallback(callback);
       client.subscribe((ROOT_TOPIC + "/config").c_str());
       client.subscribe((ROOT_TOPIC + "/update/url").c_str());
+      Log.noticeln(F("Subscription done"));
       delay(100);
+      return true;
     } else {
       Log.errorln(F("Failed, rc=%d try again in 1 seconds"), client.state());
       // Wait 1 seconds before retrying
@@ -138,8 +140,8 @@ void configMsg(char* topic, byte* payload, unsigned int length) {
       if (isnan(sleepTime) || sleepTime / 1e6 != p.value()){
         sleepTime = p.value();
         
-        if (sleepTime * 1e6 > ESP.deepSleepMax()) {
-          sleepTime = ESP.deepSleepMax();
+        if (sleepTime * 1e6 > 1e18) {
+          sleepTime = 1e18;
         } else {
           sleepTime *= 1e6;
         }
@@ -147,7 +149,7 @@ void configMsg(char* topic, byte* payload, unsigned int length) {
         EEPROM.put(SLEEP_TIME, sleepTime);
         commit = true;
         
-        Log.noticeln(F("New sleep time set: %D s"), (sleepTime / 1e6));
+        Log.noticeln(F("New sleep time set: %l s"), (sleepTime / 1e6));
       } else {
         Log.verboseln(F("Value unchanged. Ignoring"));
       }
@@ -168,16 +170,15 @@ void configMsg(char* topic, byte* payload, unsigned int length) {
         Log.verboseln(F("Value unchanged. Ignoring"));
       }
     } else if (strcmp(key, "logLevel") == 0) {
-      if (rtcData.logLevel != p.value()){
-        rtcData.logLevel = p.value();
+      if (logLevel != p.value()){
+        logLevel = p.value();
         
-        if (rtcData.logLevel > LOG_LEVEL_VERBOSE) {
-          rtcData.logLevel = LOG_LEVEL_VERBOSE;
+        if (logLevel > LOG_LEVEL_VERBOSE) {
+          logLevel = LOG_LEVEL_VERBOSE;
         }
-        rtcDirty = true;
-        Log.setLevel(rtcData.logLevel);
+        Log.setLevel(logLevel);
         
-        Log.noticeln(F("New log level set: %d"), rtcData.logLevel);
+        Log.noticeln(F("New log level set: %d"), logLevel);
       } else {
         Log.verboseln(F("Value unchanged. Ignoring"));
       }
@@ -205,12 +206,12 @@ void updateMsg(char* topic, byte* payload, unsigned int length) {
   String url = String((char*)payload);
   Log.noticeln(F("Received an OTA message. Preparing to download from %s"), url.c_str());
 
-  if (update(url, 80)) {
+  /*if (update(url, 80)) {
     Log.noticeln(F("Ready to restart"));
     client.publish((ROOT_TOPIC + "/update/url").c_str(), new byte[0], 0, true);
     delay(1000);
     ESP.restart();
-  }
+  }*/
 }
 
 

@@ -7,25 +7,20 @@
    * Distance measurement by Probots: https://tutorials.probots.co.in/communicating-with-a-waterproof-ultrasonic-sensor-aj-sr04m-jsn-sr04t/
 *********/
 #include <NTPClient.h>
-#include <ESP8266WiFi.h>
+#include <WiFi.h>
 #include <PubSubClient.h>
 #include <EEPROM.h>
 #include <ArduinoJson.h>
 #include <ArduinoLog.h>
-#include <SoftwareSerial.h>
 #include <LittleFS.h>
 #include "BufferPrint.h"
 #include "PubSubPrint.h"
 #include "config.h"
 
+#define BAT_ADC    2
+
 #define MSG_BUFFER_SIZE  (50)
-char msg[MSG_BUFFER_SIZE];
-
-const int analogInPin = A0;  // ESP8266 Analog Pin ADC0 = A0
-
-#define rxPin0 0
-#define txPin0 2
-#define gndPin0 12
+RTC_DATA_ATTR char msg[MSG_BUFFER_SIZE];
 
 /****************************************************************************************************************/
 /*************\
@@ -35,25 +30,34 @@ const int analogInPin = A0;  // ESP8266 Analog Pin ADC0 = A0
 // See https://www.bakke.online/index.php/2017/06/24/esp8266-wifi-power-reduction-avoiding-network-scan/
 // The ESP8266 RTC memory is arranged into blocks of 4 bytes. The access methods read and write 4 bytes at a time,
 // so the RTC data structure should be padded to a 4-byte multiple.
-struct {
-  uint32_t crc32;                             // 4 bytes
+/*struct Rtc_Data {
   uint8_t  channel;                           // 1 byte,    5 in total
   uint8_t  bssid[6];                          // 6 bytes,   11 in total
   uint8_t  failedConnection;                  // 1 byte,    12 in total
-  uint8_t  batteryAlertSent;                  // 1 byte,    13 in total
-  uint8_t  waterLevelAlertSent;               // 1 byte,    14 in total
-  uint8_t  logLevel;                          // 1 byte,    15 in total
+  uint8_t  waterLevelAlertSent;               // 1 byte,    13 in total
   uint16_t lastMeasure[PROBE_COUNT];          // 2*PROBE_COUNT bytes
   uint16_t bufferPosition;                    // 2 bytes
   uint8_t  logBuffer[400-2*PROBE_COUNT];      // 400 bytes
-} rtcData;
+};*/
+
+//RTC_DATA_ATTR struct Rtc_Data rtcData;
+RTC_DATA_ATTR uint8_t  channel;
+RTC_DATA_ATTR uint8_t  bssid[6];
+RTC_DATA_ATTR uint8_t  failedConnection;
+RTC_DATA_ATTR uint16_t lastMeasure[PROBE_COUNT];
+RTC_DATA_ATTR uint16_t bufferPosition;
+RTC_DATA_ATTR uint8_t  logBuffer[1024];
+RTC_DATA_ATTR uint16_t logBufferLength;
+RTC_DATA_ATTR uint8_t  logLevel = LOG_LEVEL_NOTICE;
+RTC_DATA_ATTR bool     rtcValid = false;
+RTC_DATA_ATTR uint32_t run = 0;
 
 /*************\
  * Constants *
 \*************/
 
 // Sensor config
-#define MIN_LEVEL 0
+#define MIN_LEVEL       0
 #define MAX_LEVEL       MIN_LEVEL + PROBE_COUNT * 4
 #define SLEEP_TIME      MAX_LEVEL + PROBE_COUNT * 4
 #define MAX_DIFFERENCE  SLEEP_TIME + 4
@@ -73,22 +77,17 @@ bool removeConfigMsg = false;
 WiFiClient espClient;
 PubSubClient client(espClient);
 PubSubPrint mqttLog = PubSubPrint(&client, "");
-
-SoftwareSerial swSer;
+BufferPrint *bp;
 
 float batteryLevel = 0;  // value read from A0
-uint32_t sleepTime;
-int minLevel[PROBE_COUNT];
-int maxLevel[PROBE_COUNT];
-uint8_t maxDifference;
-bool batteryAlertSent = false;
-bool waterLevelAlertSent = false;
+RTC_DATA_ATTR uint64_t sleepTime = DEFAULT_SLEEP_TIME;
+RTC_DATA_ATTR int minLevel[PROBE_COUNT];
+RTC_DATA_ATTR int maxLevel[PROBE_COUNT];
+RTC_DATA_ATTR uint8_t maxDifference;
+RTC_DATA_ATTR bool batteryAlertSent = false;
+RTC_DATA_ATTR bool waterLevelAlertSent = false;
 
 long wifiStart;
-
-bool rtcLoaded = false;
-bool rtcValid = false;
-bool rtcDirty = false;
 
 bool commit = false;
 
@@ -101,43 +100,54 @@ void setup() {
    */
   // Keep Wifi disabled at first 
   WiFi.mode( WIFI_OFF );
-  WiFi.forceSleepBegin();
-  delay( 1 );
-
-  // Init pin for second probe
-  pinMode(rxPin0, INPUT);
-  pinMode(txPin0, OUTPUT);
+  WiFi.setSleep(true);
+  delayMicroseconds( 10 );
 
   Log.setPrefix(printPrefix); // set prefix similar to NLog
-  
-  // initialize serial communication at 9600
-  // It is mandatory to be able to read data comming from the ultrasound sensor
-  Serial.begin(9600);
-  swSer.begin(9600, SWSERIAL_8N1, rxPin0, txPin0, false);
-  if (!swSer) { // If the object did not initialize, then its configuration is invalid
-    Log.errorln("Invalid SoftwareSerial pin configuration, check config"); 
-  } 
-  
+
+  Serial.begin(115200);
+
+  pinMode(gndPin0, OUTPUT);
+  digitalWrite(gndPin0, LOW);
+  digitalWrite(5, LOW);
+
+#if PROBE_COUNT >= 1
+  pinMode(trigPin0, OUTPUT);
+  pinMode(echoPin0, INPUT);
+  digitalWrite(trigPin0, LOW);
+#endif
+
+#if PROBE_COUNT >= 2
+  pinMode(trigPin1, OUTPUT);
+  pinMode(echoPin1, INPUT);
+  digitalWrite(trigPin1, LOW);
+#endif
+
+#if DEBUG
   while (!Serial) {
     ; // wait for serial port to connect. Needed for native USB port only
   }
 
+  printTimestamp(&Serial);
+  Serial.println("Serial started");
+  Serial.setDebugOutput(true);
+
+  esp_log_level_set("*", ESP_LOG_VERBOSE);
+  log_e("EXAMPLE", "This doesn't show");
+#endif
+
   mqttLog = PubSubPrint(&client, LOG_TOPIC.c_str());
   mqttLog.setSuspend(true);
-  
-  if (!loadRtc()) {
-    // Set default values on cold start
-    rtcData.logLevel = LOG_LEVEL_NOTICE;
-    rtcDirty = true;
-  }
+  size_t loaded = mqttLog.loadBufferData(logBuffer, logBufferLength);
 
-  BufferPrint *bp = new BufferPrint();
+  bp = new BufferPrint();
   bp->addOutput(&Serial);
-  Log.begin(rtcData.logLevel, bp);
+  Log.begin(logLevel, bp);
   // Comment next line if you don’t want logging by MQTT
   bp->addOutput(&mqttLog);
   
   Log.traceln(F("Logging ready"));  
+  Log.noticeln(F("Loaded %l bytes from log buffer"), loaded);
 
   // Read config from EEPROM
   EEPROM.begin(EEPROM_SIZE);
@@ -149,13 +159,13 @@ void setup() {
   EEPROM.get(MAX_DIFFERENCE, maxDifference);
 
   // Checking the recorded value (should only be useful on the first start)
-  if (isnan(sleepTime) || sleepTime <= 0 || sleepTime > ESP.deepSleepMax()) {
+  if (isnan(sleepTime) || sleepTime <= 0) {
     sleepTime = DEFAULT_SLEEP_TIME;
     EEPROM.put(SLEEP_TIME, sleepTime);
     commit = true;
     Log.warningln(F("Set default sleep time"));
   }
-  Log.noticeln(F("Sleep time %D s"), (sleepTime / 1e6));
+  Log.noticeln(F("Sleep time %u s"), (sleepTime / 1e6));
 
   for (int i = 0; i < PROBE_COUNT; i++) {
     if (minLevel[i] < CLOSEST || minLevel[i] > FARTHEST) {
@@ -191,6 +201,16 @@ void setup() {
     commit = true;
   }
 
+  Log.verboseln(F("RTC Data:"));
+  Log.verboseln(F(" - rtcValid: %T"), rtcValid);
+  Log.verboseln(F(" - BSSID: %x:%x:%x:%x:%x:%x"), bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5]);
+  Log.verboseln(F(" - channel: %d"), channel);
+  Log.verboseln(F(" - failedConnection: %d"), failedConnection);
+  Log.verboseln(F(" - waterLevelAlertSent: %d"), waterLevelAlertSent);
+  Log.verboseln(F(" - logLevel: %d"), logLevel);
+  Log.verboseln(F(" - bufferPosition: %d"), bufferPosition);
+  Log.verboseln(F(" - logBuffer: %s"), logBuffer);
+
   /***********************************
    *     Measures
    */
@@ -203,22 +223,22 @@ void setup() {
   if (batteryLevel <= BATTERY_ALERT_THRESHOLD) {
     Log.warningln("Battery low!");
     client.publish((ROOT_TOPIC + "/alert").c_str(), "Battery low");
-    rtcData.batteryAlertSent = true;
-    rtcDirty = true;
+    batteryAlertSent = true;
   } else if (batteryAlertSent && batteryLevel > BATTERY_ALERT_REARM) {
     // Clear alert
-    rtcData.batteryAlertSent = false;
-    rtcDirty = true;
+    batteryAlertSent = false;
     client.publish((ROOT_TOPIC + "/alert").c_str(), new byte[0], 0, true);
   }
 
   long waterLevel[PROBE_COUNT];
-  if (PROBE_COUNT >= 1) {
-    waterLevel[0] = getWaterLevel(&Serial, 0);
-  }
-  if (PROBE_COUNT >= 2) {
-    waterLevel[1] = getWaterLevel(&swSer, 1);
-  }
+
+#if PROBE_COUNT >= 1
+    waterLevel[0] = getWaterLevel(trigPin0, echoPin0, 0);
+#endif
+
+#if PROBE_COUNT >= 2
+    waterLevel[1] = getWaterLevel(trigPin1, echoPin1, 1);
+#endif
 
   /***********************************
    *     Reporting
@@ -235,7 +255,7 @@ void setup() {
 
     for (int i = 0; i < PROBE_COUNT; i++) {
       if (waterLevel[i] < CLOSEST || waterLevel[i] > FARTHEST) {
-        Log.warningln(F("Not reporting the measurement %d as it si invalid"), i);
+        Log.warningln(F("Not reporting the measurement %d as it is invalid"), i);
         continue;
       }
 
@@ -248,17 +268,18 @@ void setup() {
     // Reporting voltage
     client.publish((ROOT_TOPIC + "/voltage").c_str(), (String(batteryLevel)).c_str());
     client.loop();
+    Log.infoln(F("Measurements sent"));
 
     // Make sure that buffered messages got sent
     mqttLog.setSuspend(false);
-    delay(50);
+    delay(1);
     client.loop();
-    delay(100);
+    delay(1);
 
     // Empty Wifi reception buffer
     while (espClient.available()) {
       mqttLog.setSuspend(false);
-      delay(10);
+      delay(1);
       client.loop();
     }
 
@@ -266,6 +287,7 @@ void setup() {
       // This config message is intended for me only so I can delete it
       Log.noticeln(F("Config message processed"));
       client.publish((ROOT_TOPIC + "/config").c_str(), new byte[0], 0, true);
+      delay(1);
       client.loop();
       Log.traceln("Message removed from topic");
       delay(10);
@@ -289,10 +311,23 @@ void startSleep() {
     Log.noticeln(F("New config committed: %T"), commited);
   }
 
-  saveRtc();
+  bp->flush();
+  size_t saved = mqttLog.saveBufferData(logBuffer);
+  logBufferLength = saved;
+  Log.noticeln(F("Saved %l bytes to log buffer"), saved);
+  client.disconnect();
+  espClient.flush();
+  delay(10);
+
   EEPROM.end();
+  rtcValid = true;
+  printTimestamp(&Serial);
+  Serial.println("Going down");
+  run++;
   
-  ESP.deepSleepInstant(sleepTime, WAKE_RF_DISABLED);
+  esp_sleep_enable_timer_wakeup(sleepTime);
+  Serial.flush();
+  esp_deep_sleep_start();
 
   Serial.println(F("What... I'm not asleep?!?"));  // it will never get here
   delay(5000);
