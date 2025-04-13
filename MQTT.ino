@@ -2,71 +2,13 @@
  * MQTT *
 \********/
 
-bool reconnect() {
-  // Init MQTT
-  client.setServer(MQTT_SERVER, 1883);
-  int i = 3;
+void configMsg(String topic, String payload) {
   
-  // Loop until we're reconnected
-  while (!client.connected() && i > 0) {
-    Log.noticeln(F("Connecting to MQTT"));
-
-    // Create a random client ID
-    String clientId = "waterLevel-";
-    clientId += String(random(0xffff), HEX);
-    
-    // Attempt to connect
-    if (client.connect(clientId.c_str())) {
-      // ... and resubscribe
-      client.setCallback(callback);
-      client.subscribe((ROOT_TOPIC + "/config").c_str());
-      client.subscribe((ROOT_TOPIC + "/update/url").c_str());
-      Log.noticeln(F("Subscription done"));
-      delay(100);
-      return true;
-    } else {
-      Log.errorln(F("Failed, rc=%d try again in 1 seconds"), client.state());
-      // Wait 1 seconds before retrying
-      delay(1000);
-    }
-    i--;
-  }
-
-  if (i <= 0) {
-    Log.warningln(F("Failed to send MQTT message"));
-    return false;
-  }
-
-  return true;
-}
-
-void callback(char* topic, byte* payload, unsigned int length) {
-  if (length == 0) {
-    return;
-  }
-
-  // Stop sending log to MQTT to avoid deadlocks
-  mqttLog.setSuspend(true);
-
-  String _topic = String(topic);
-  Log.noticeln(F("Message received on topic: %s"), _topic.c_str());
-
-  if (_topic.equals(ROOT_TOPIC + "/update/url") == 1) {
-      updateMsg(topic, payload, length);
-  }
-
-  if (_topic.equals(ROOT_TOPIC + "/config") == 1) {
-      configMsg(topic, payload, length);
-  }
-}
-
-void configMsg(char* topic, byte* payload, unsigned int length) {
- 
   /* Process the configuration command */
 
   // Allocate the JSON document
-  const size_t capacity = JSON_OBJECT_SIZE(50);
-  DynamicJsonDocument doc(capacity);
+  //const size_t capacity = JSON_OBJECT_SIZE(50);
+  JsonDocument doc;
 
   // Parse JSON object
   DeserializationError error = deserializeJson(doc, payload);
@@ -108,6 +50,9 @@ void configMsg(char* topic, byte* payload, unsigned int length) {
     }
 
     // Process setting
+    /*******************/
+    //    min level
+    /*******************/
     if (strcmp(cKey, "minLevel") == 0) {
       if (isnan(minLevel[index]) || minLevel[index] != (int)p.value()){
         minLevel[index] = (int)p.value();
@@ -122,6 +67,9 @@ void configMsg(char* topic, byte* payload, unsigned int length) {
       } else {
         Log.verboseln(F("Value unchanged. Ignoring"));
       }
+    /*******************/
+    //    max level
+    /*******************/
     } else if (strcmp(cKey, "maxLevel") == 0) {
       if (isnan(maxLevel[index]) || maxLevel[index] != (int)p.value()){
         maxLevel[index] = (int)p.value();
@@ -136,11 +84,14 @@ void configMsg(char* topic, byte* payload, unsigned int length) {
       } else {
         Log.verboseln(F("Value unchanged. Ignoring"));
       }
+    /*******************/
+    //   sleep Time
+    /*******************/
     } else if (strcmp(key, "sleepTime") == 0) {
       if (isnan(sleepTime) || sleepTime / 1e6 != p.value()){
         sleepTime = p.value();
         
-        if (sleepTime * 1e6 > 1e18) {
+        if (sleepTime  > 1e12) {
           sleepTime = 1e18;
         } else {
           sleepTime *= 1e6;
@@ -149,10 +100,13 @@ void configMsg(char* topic, byte* payload, unsigned int length) {
         EEPROM.put(SLEEP_TIME, sleepTime);
         commit = true;
         
-        Log.noticeln(F("New sleep time set: %l s"), (sleepTime / 1e6));
+        Log.noticeln(F("New sleep time set: %i s"), (int)(sleepTime / 1e6));
       } else {
         Log.verboseln(F("Value unchanged. Ignoring"));
       }
+    /*******************/
+    // max Difference
+    /*******************/
     } else if (strcmp(key, "maxDifference") == 0) {
       if (maxDifference != p.value()){
         if (p.value() <= 0 || p.value() > maxLevel[0]) {
@@ -169,6 +123,9 @@ void configMsg(char* topic, byte* payload, unsigned int length) {
       } else {
         Log.verboseln(F("Value unchanged. Ignoring"));
       }
+    /*******************/
+    //     Log level
+    /*******************/
     } else if (strcmp(key, "logLevel") == 0) {
       if (logLevel != p.value()){
         logLevel = p.value();
@@ -197,21 +154,97 @@ void configMsg(char* topic, byte* payload, unsigned int length) {
   removeConfigMsg = true;
 }
 
-void updateMsg(char* topic, byte* payload, unsigned int length) {
+void updateMsg(String topic, String payload) {
+
+  if (payload.length() == 0) {
+    return;
+  }
+
+  Log.noticeln(F("Received an OTA message. Preparing to download from %s."), payload.c_str());
+  
+  if (update(payload, 80)) {
+      Log.noticeln(F("Ready to restart"));
+      client.publish((ROOT_TOPIC + "/update/url").c_str(), new byte[0], 0, true);
+      delay(1000);
+      ESP.restart();
+  }
+}
+  
+
+void callback(char* topic, byte* payload, unsigned int length) {
   if (length == 0) {
     return;
   }
 
+  // Stop sending log to MQTT to avoid deadlocks
+  //mqttLog.setSuspend(true);
   payload[length] = '\0';
-  String url = String((char*)payload);
-  Log.noticeln(F("Received an OTA message. Preparing to download from %s"), url.c_str());
 
-  /*if (update(url, 80)) {
-    Log.noticeln(F("Ready to restart"));
-    client.publish((ROOT_TOPIC + "/update/url").c_str(), new byte[0], 0, true);
-    delay(1000);
-    ESP.restart();
-  }*/
+  String _topic = String(topic);
+  String _payload = String((char*)payload);
+  Log.noticeln(F("Message received on topic: %s"), _topic.c_str());
+
+  if (_topic.equals(ROOT_TOPIC + "/update/url") == 1) {
+      updateMsg(_topic, _payload);
+  }
+
+  if (_topic.equals(ROOT_TOPIC + "/config") == 1) {
+      configMsg(_topic, _payload);
+  }
+}
+
+bool reconnect() {
+  // Init MQTT
+  client.setServer(MQTT_SERVER, 1883);
+  int i = 3;
+  
+  // Loop until we're reconnected
+  while (!client.connected() && i > 0) {
+    Log.noticeln(F("Connecting to MQTT"));
+
+    // Create a random client ID
+    String clientId = "waterLevel-";
+    clientId += String(random(0xffff), HEX);
+    
+    // Attempt to connect
+    if (client.connect(clientId.c_str())) {
+      // ... and resubscribe
+      client.setCallback(callback);
+      client.subscribe((ROOT_TOPIC + "/config").c_str());
+      client.subscribe((ROOT_TOPIC + "/update/url").c_str());
+      Log.noticeln(F("Subscription done"));
+      delay(100);
+      return true;
+    } else {
+      Log.errorln(F("Failed, rc=%d try again in 1 seconds"), client.state());
+      // Wait 1 seconds before retrying
+      delay(1000);
+					  
+    }
+    i--;
+  }
+
+  if (i <= 0) {
+    Log.warningln(F("Failed to send MQTT message"));
+    return false;
+  }
+
+  return true;
 }
 
 
+
+
+	   
+		  
+	 
+  
+				 
+													  
+				   
+	 
+  
+				
+   
+  
+  

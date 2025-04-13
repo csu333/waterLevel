@@ -6,6 +6,7 @@
    * Battery voltage from zenz: https://github.com/LilyGO/LILYGO-T-OI/issues/12
    * Distance measurement by Probots: https://tutorials.probots.co.in/communicating-with-a-waterproof-ultrasonic-sensor-aj-sr04m-jsn-sr04t/
 *********/
+#include <Arduino.h>
 #include <NTPClient.h>
 #include <WiFi.h>
 #include <PubSubClient.h>
@@ -16,6 +17,7 @@
 #include "BufferPrint.h"
 #include "PubSubPrint.h"
 #include "config.h"
+#include "ota.h"
 
 #define BAT_ADC    2
 
@@ -60,7 +62,7 @@ RTC_DATA_ATTR uint32_t run = 0;
 #define MIN_LEVEL       0
 #define MAX_LEVEL       MIN_LEVEL + PROBE_COUNT * 4
 #define SLEEP_TIME      MAX_LEVEL + PROBE_COUNT * 4
-#define MAX_DIFFERENCE  SLEEP_TIME + 4
+#define MAX_DIFFERENCE  SLEEP_TIME + 8
 #define EEPROM_SIZE     MAX_DIFFERENCE + 4
 
 const String LOG_TOPIC = ROOT_TOPIC + "/log";
@@ -165,7 +167,7 @@ void setup() {
     commit = true;
     Log.warningln(F("Set default sleep time"));
   }
-  Log.noticeln(F("Sleep time %u s"), (sleepTime / 1e6));
+  Log.noticeln(F("Sleep time %i s"), (int)(sleepTime / 1e6));
 
   for (int i = 0; i < PROBE_COUNT; i++) {
     if (minLevel[i] < CLOSEST || minLevel[i] > FARTHEST) {
@@ -234,10 +236,16 @@ void setup() {
 
 #if PROBE_COUNT >= 1
     waterLevel[0] = getWaterLevel(trigPin0, echoPin0, 0);
+    if (waterLevel[0] > 0) {
+      lastMeasure[0] = waterLevel[0];
+    }
 #endif
 
 #if PROBE_COUNT >= 2
     waterLevel[1] = getWaterLevel(trigPin1, echoPin1, 1);
+    if (waterLevel[1] > 0) {
+      lastMeasure[1] = waterLevel[1];
+    }
 #endif
 
   /***********************************

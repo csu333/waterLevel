@@ -19,14 +19,15 @@ int getWaterReading(uint8_t trigPin, uint8_t echoPin) {
   digitalWrite(trigPin, HIGH);
   delay(2);
   digitalWrite(trigPin, LOW);
-  delayMicroseconds(10);
+  //delayMicroseconds(500);
+  delay(1);
   // Reads the echoPin, returns the sound wave travel time in microseconds
   duration = pulseIn(echoPin, HIGH, 50000);
   // Calculating the distance
   distance = duration * 0.34 / 2; // Speed of sound wave divided by 2 (go and back)
 
   if (distance <= 0) {
-    Log.errorln(F("Distance too short: %d cm (%d microseconds)"), distance, duration);
+    //Log.errorln(F("Reading too short: %d mm (%d microseconds)"), distance, duration);
     return -1;
   }
 
@@ -44,25 +45,27 @@ int getWaterLevel(uint8_t trigPin, uint8_t echoPin, uint8_t index) {
   }*/
 
   // Check that returned value makes sense
-  if (distance < CLOSEST) {
-    Log.warningln("Distance too short for the sensor %d. Trying again.", index);
-    distance = getWaterReading(trigPin, echoPin);
-  }
+  
 
   int i = 0;
   // Check reading plausibility
-  while (abs(distance - lastMeasure[index]) > maxDifference && i < 2) {
-    Log.warningln("There is more than %dmm difference with last measure (was %dmm compared to %dmm now). Trying again", maxDifference, lastMeasure[index], distance);
+  while ((distance < CLOSEST || abs(distance - lastMeasure[index]) > maxDifference) && i < 4) {
+
+    if (distance < CLOSEST) {
+      Log.warningln("Distance too short for the sensor %d. Trying again.", index);
+    } 
+
+    if (distance >= CLOSEST && abs(distance - lastMeasure[index]) > maxDifference) {
+      Log.warningln("There is more than %dmm difference with last measure (was %dmm compared to %dmm now). Trying again", maxDifference, lastMeasure[index], distance);
+      lastMeasure[index] = (uint16_t)distance;
+    }
+
     delay(random(20,100));
-    lastMeasure[index] = (uint16_t)distance;
     distance = getWaterReading(trigPin, echoPin);
 
-    /*if (distance < 0) {
+    if (distance < 0) {
       Log.errorln(F("Error reading water level %d"), index);
-      return -1;
-    }*/
-
-    Log.noticeln("Distance %d: %d mm", index, distance);
+    }
 
     i++;
   }
@@ -76,6 +79,8 @@ int getWaterLevel(uint8_t trigPin, uint8_t echoPin, uint8_t index) {
     Log.warningln(F("Distance not stabilising. Giving up"));
     return -1;
   }
+
+  Log.noticeln("Distance %d: %d mm", index, distance);
 
   // Check that configuration values are correct
   if (distance > minLevel[index]) {
