@@ -1,0 +1,15 @@
+#include "Arduino.h"
+#include "global_vars.h"
+
+String WLAN_SSID   = "wifiSSID";
+String WLAN_PASSWD = "PassW0rd";
+
+// Static IP to save power on DHCP dialog
+IPAddress staticIP = IPAddress(192, 168, 0, 200);
+IPAddress gateway  = IPAddress(192, 168, 0, 1);
+IPAddress subnet   = IPAddress(255, 255, 255, 0);
+IPAddress dns      = IPAddress(192, 168, 0, 1);
+
+// MQTT broker IP Address
+IPAddress MQTT_SERVER = IPAddress(192, 168, 0, 201);
+String ROOT_TOPIC     = "water";

@@ -14,17 +14,7 @@ The sensor should be placed in the tank where it will not pick up a reading from
 ## Preparation and building
 In this application, the distance sensor is used in [Mode 2](https://www.mantech.co.za/Datasheets/Products/AJ-SR04M-200925A.pdf) (Low Power Consumption Mode), so a 330 kΩ resistor must be soldered on R19.
 
-Rename config.h.sample to config.h and adapt the settings to your environment.
-
-Use [Arduino IDE](https://www.arduino.cc/en/software) to buil and deploy. Make sure you have the following libraries:
- * WiFi (by Arduino)
- * ArduinoJson (by Benoit Blanchon)
- * ArduinoLog (by Thijs Elenbaas)
- * PubSubClient (by Nick O'Leary)
-
- [Add a Board Manager URL](https://support.arduino.cc/hc/en-us/articles/360016466340-Add-or-remove-third-party-boards-in-Boards-Manager): https<nolink>://raw.githubusercontent.com/espressif/arduino-esp32/gh-pages/package_esp32_index.json
-
- Select board **ESP32C3 Dev Module** under *Tools* > *esp32 Boards*
+Rename config.cpp.sample to config.h and adapt the settings to your environment.
 
  ## Software configuration
  The software is configured over MQTT. You need to send a JSON message to the device on topic **ROOT_TOPIC/config** with configuration values. The possible settings are (case-sensitive):
