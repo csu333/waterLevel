@@ -10,7 +10,7 @@ BufferPrint::BufferPrint(){
 
 BufferPrint::BufferPrint(uint8_t * buffer[]){
   _buffer = (uint8_t *)buffer;
-  bufferSize = sizeof(buffer);
+  bufferSize = sizeof(_buffer);
   output = new Print*[4];
 }
 

@@ -1,3 +1,6 @@
+#ifndef PUB_SUB_PRINT_H
+#define PUB_SUB_PRINT_H
+
 #include <cstddef>
 #include <Print.h>
 #include <PubSubClient.h>
@@ -25,3 +28,5 @@ class PubSubPrint : public Print
 
         void flush();
 };
+
+#endif

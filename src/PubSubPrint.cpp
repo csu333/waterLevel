@@ -1,5 +1,6 @@
 #include <cstddef>
 #include "PubSubPrint.h"
+#include "Arduino.h"
 
 #define max(a,b) \
    ({ __typeof__ (a) _a = (a); \
