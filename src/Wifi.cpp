@@ -47,45 +47,49 @@ bool initWiFi()
     bool connectReset = false;
 
     // Try first with a fast connection
-    while (WiFi.status() != WL_CONNECTED && fastConnect)
+    while (WiFi.status() != WL_CONNECTED && fastConnect && (millis() - wifiStart) < 5000)
     {
-        if ((millis() - wifiStart) >= 10000)
-        {
-            // Quick connect is not working, reset WiFi and try regular connection
-            Log.warningln(F("Fast connect failed with info:"));
-            Log.noticeln(F(" - Channel: %d"), channel);
-            Log.noticeln(F(" - BSSID: %x:%x:%x:%x:%x:%x"), bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5]);
-            WiFi.disconnect(true);
-            connectReset = true;
-            delay(50);
-            WiFi.setSleep(true);
-            delay(100);
-            WiFi.setSleep(false);
-            delay(50);
-            WiFi.begin(WLAN_SSID, WLAN_PASSWD);
-            break;
-        }
-        
         delay(50);
-        Log.noticeln(F("Fast connection worked"));
+    }
+
+    if (WiFi.status() == WL_CONNECTED && fastConnect) {
+        Log.noticeln(F("Fast connect success after %d ms"), (millis() - wifiStart));
+    } 
+
+    if (WiFi.status() != WL_CONNECTED && fastConnect) {
+        // Quick connect is not working, reset WiFi and try regular connection
+        Log.warningln(F("Fast connect failed with info:"));
+        Log.noticeln(F(" - Channel: %d"), channel);
+        Log.noticeln(F(" - BSSID: %x:%x:%x:%x:%x:%x"), bssid[0], bssid[1], bssid[2], bssid[3], bssid[4], bssid[5]);
+        WiFi.disconnect(true);
+        connectReset = true;
+        delay(50);
+        WiFi.setSleep(true);
+        delay(100);
+        WiFi.setSleep(false);
+        delay(50);
+        WiFi.begin(WLAN_SSID, WLAN_PASSWD);
     }
 
     // If it didn't work, try a standard connection
-    while (WiFi.status() != WL_CONNECTED)
+    while (WiFi.status() != WL_CONNECTED && (millis() - wifiStart) < 10000)
     {
-        if ((millis() - wifiStart) >= 20000)
-        {
-            Log.errorln(F("Wifi did not connect, giving up"));
-            // Giving up after 30 seconds and going back to sleep
-            WiFi.disconnect(true);
-            delay(1);
-            WiFi.mode(WIFI_OFF);
-
-            failedConnection++;
-            return false;
-        }
-
         delay(50);
+    }
+
+    if (WiFi.status() == WL_CONNECTED && !fastConnect) {
+        Log.noticeln(F("Regular connect success after %d ms"), (millis() - wifiStart));
+    } 
+    
+    if (WiFi.status() != WL_CONNECTED) {
+        Log.errorln(F("Wifi did not connect, giving up"));
+        // Giving up and going back to sleep
+        WiFi.disconnect(true);
+        delay(1);
+        WiFi.mode(WIFI_OFF);
+
+        failedConnection++;
+        return false;
     }
 
     Log.noticeln(F("RSSI: %d dB"), WiFi.RSSI());
