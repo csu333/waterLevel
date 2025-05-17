@@ -99,8 +99,17 @@ void startSleep()
     Serial.println("Going down");
     run++;
 
-    esp_sleep_enable_timer_wakeup(sleepTime);
     Serial.flush();
+    // Shut down RTC (Low Power) Peripherals
+    esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH,   ESP_PD_OPTION_OFF);
+    // Shut down RTC Slow Memory
+    esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_SLOW_MEM, ESP_PD_OPTION_OFF);
+    // Shut down RTC Fast Memory
+    esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_FAST_MEM, ESP_PD_OPTION_OFF);
+    // Shut down Crystal Oscillator XTAL 
+    esp_sleep_pd_config(ESP_PD_DOMAIN_XTAL,         ESP_PD_OPTION_OFF);
+    // Enter Deep Sleep
+    esp_sleep_enable_timer_wakeup(sleepTime);
     esp_deep_sleep_start();
 
     Serial.println(F("What... I'm not asleep?!?")); // it will never get here
@@ -113,7 +122,8 @@ void setup()
     /***********************************
      *     Initialisation
      */
-    // Keep Wifi disabled at first
+    // Keep Wifi and bluetooth disabled at first
+    btStop();
     WiFi.mode(WIFI_OFF);
     WiFi.setSleep(true);
     delayMicroseconds(10);
