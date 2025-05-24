@@ -35,7 +35,7 @@ RTC_DATA_ATTR uint16_t lastMeasure[PROBE_COUNT];
 RTC_DATA_ATTR uint16_t bufferPosition;
 RTC_DATA_ATTR uint8_t  logBuffer[1024];
 RTC_DATA_ATTR uint16_t logBufferLength;
-uint8_t  logLevel = LOG_LEVEL_NOTICE;
+RTC_DATA_ATTR uint8_t  logLevel = LOG_LEVEL_NOTICE;
 RTC_DATA_ATTR bool     rtcValid = false;
 RTC_DATA_ATTR uint32_t run = 0;
 

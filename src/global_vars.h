@@ -63,7 +63,7 @@ extern RTC_DATA_ATTR uint64_t sleepTime;
 extern RTC_DATA_ATTR uint8_t maxDifference;
 extern RTC_DATA_ATTR bool batteryAlertSent;
 extern RTC_DATA_ATTR bool waterLevelAlertSent;
-extern uint8_t logLevel;
+extern RTC_DATA_ATTR uint8_t logLevel;
 
 extern WiFiClient espClient;
 extern PubSubClient client;
