@@ -45,6 +45,9 @@ If you configure more than one probe, you can use indexed minLevel and maxLevel:
 
 Make sure you send the config with the **Retain** option. The values are read at the end of the reading cycle so it will take up to 5 minutes for the settings to apply. To speed up the process, you can push the reset button to trigger a new cycle.
 
+### Getting log files
+It is possible to get log files from previous run. Send the file name on **ROOT_TOPIC/file/get** (e.g. "/log001.txt"). The content is sent on the **ROOT_TOPIC/file/data** topic. You can also get a list of all the files by sending a folder name (typically "/") on **ROOT_TOPIC/file/dirlist**. The result is sent on **ROOT_TOPIC/file/dir/FOLDER_NAME** (i.e. if you requested the listing for the root folder, the answer would come on **ROOT_TOPIC/file/dir/**).
+
 ### Remote update (not working)
 You can update the firmware remotely by sending the url of the firmware on topic **ROOT_TOPIC/update/url**. Only works in http port 80.
 

@@ -73,7 +73,7 @@ void configMsg(String topic, String payload)
                     minLevel[index] = FARTHEST;
                     Log.warningln(F("Min level in beyond max range. Setting probe %d to %d mm"), index, FARTHEST);
                 }
-                preferences.putInt(String("minLevel" + index).c_str(), minLevel[index]);
+                preferences.putInt(String("minLevel-" + index).c_str(), minLevel[index]);
 
                 Log.noticeln(F("New minimum level set for probe %d: %d"), index, minLevel[index]);
             }
@@ -95,7 +95,7 @@ void configMsg(String topic, String payload)
                     maxLevel[index] = CLOSEST;
                     Log.warningln(F("Max level in blind zone. Setting probe %d to %d mm"), index, CLOSEST);
                 }
-                preferences.putInt(String("maxLevel" + index).c_str(), maxLevel[index]);
+                preferences.putInt(String("maxLevel-" + index).c_str(), maxLevel[index]);
 
                 Log.noticeln(F("New maximum level set for probe %d: %d"), index, maxLevel[index]);
             }

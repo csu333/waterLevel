@@ -68,6 +68,9 @@ String LOG_TOPIC;
 
 bool removeConfigMsg = false;
 
+hw_timer_t * timer = NULL;
+volatile bool timeoutFlag = false;
+
 /*--------------------------------------------------------------------------------*/
 
 void startSleep()
@@ -75,7 +78,6 @@ void startSleep()
     Log.verboseln(F("Going to sleep"));
     Preferences preferences;
     preferences.begin(SETTINGS_NAMESPACE, false);
-    preferences.putUInt("run", run);
     preferences.putUChar("logLevel", logLevel);
 
     bp.flush();
@@ -96,11 +98,13 @@ void startSleep()
     fileLog.close();
     LittleFS.end();
 
+    run = ++run % 100000;
+    preferences.putUInt("run", run);
+
     preferences.end();
     rtcValid = true;
     printTimestamp(&Serial);
     Serial.println("Going down");
-    run = run++ % 100000;
 
     Serial.flush();
     // Shut down RTC (Low Power) Peripherals
@@ -117,6 +121,10 @@ void startSleep()
 
     Serial.println(F("What... I'm not asleep?!?")); // it will never get here
     delay(5000);
+}
+
+void IRAM_ATTR onTimer() {
+    startSleep();
 }
 
 void setup()
@@ -194,7 +202,7 @@ void setup()
 
     if (preferences.isKey("logLevel")) {
         logLevel = preferences.getUShort("logLevel", LOG_LEVEL_NOTICE);
-        Log.noticeln(F("Reading log level from Flash: %d"), logLevel);
+        Log.verboseln(F("Reading log level from Flash: %d"), logLevel);
     }
     Log.setLevel(logLevel);
 
@@ -281,6 +289,13 @@ void setup()
     Log.verboseln(F(" - logLevel: %d"), logLevel);
     Log.verboseln(F(" - bufferPosition: %d"), bufferPosition);
     Log.verboseln(F(" - logBuffer: %s"), logBuffer);
+
+    // Initialize timer (40MHz clock, prescaler 40 = 1MHz, count up)
+    timer = timerBegin(0, 40, true);
+    timerAttachInterrupt(timer, &onTimer, true);
+    // Set timer for 45 seconds (45,000,000 microseconds)
+    timerAlarmWrite(timer, 45000000, false);
+    timerAlarmEnable(timer);
 
     /***********************************
      *     Measures
