@@ -35,7 +35,7 @@ RTC_DATA_ATTR uint16_t lastMeasure[PROBE_COUNT];
 RTC_DATA_ATTR uint16_t bufferPosition;
 RTC_DATA_ATTR uint8_t  logBuffer[1024];
 RTC_DATA_ATTR uint16_t logBufferLength;
-RTC_DATA_ATTR uint8_t  logLevel = LOG_LEVEL_NOTICE;
+uint8_t  logLevel = LOG_LEVEL_NOTICE;
 RTC_DATA_ATTR bool     rtcValid = false;
 RTC_DATA_ATTR uint32_t run = 0;
 
@@ -48,6 +48,7 @@ WiFiClient   espClient;
 PubSubClient client(espClient);
 PubSubPrint  mqttLog = PubSubPrint(&client, "");
 BufferPrint  bp;
+FilePrint    fileLog;
 
 bool callback_running = false;
 
@@ -59,11 +60,9 @@ RTC_DATA_ATTR uint8_t  maxDifference;
 RTC_DATA_ATTR bool     batteryAlertSent = false;
 RTC_DATA_ATTR bool     waterLevelAlertSent = false;
 
-Preferences preferences;
+uint8_t lastFailedConnection = failedConnection;
 
 long wifiStart = 0;
-
-bool commit = false;
 
 String LOG_TOPIC;
 
@@ -73,18 +72,15 @@ bool removeConfigMsg = false;
 
 void startSleep()
 {
-    if (commit)
-    {
-        bool commited = EEPROM.commit();
-        Log.noticeln(F("New config committed: %T"), commited);
-    }
+    Log.verboseln(F("Going to sleep"));
+    Preferences preferences;
+    preferences.begin(SETTINGS_NAMESPACE, false);
+    preferences.putUInt("run", run);
+    preferences.putUChar("logLevel", logLevel);
 
     bp.flush();
     bp.removeOutput(&mqttLog);
-
-    WiFi.disconnect(true);
-    Log.noticeln(F("WiFi disconnected"));
-    WiFi.mode(WIFI_OFF);
+    Log.verboseln(F("MQTT Logging disabled"));
 
     size_t saved = mqttLog.saveBufferData(logBuffer);
     logBufferLength = saved;
@@ -93,11 +89,18 @@ void startSleep()
     espClient.flush();
     delay(10);
 
-    EEPROM.end();
+    WiFi.disconnect(true);
+    Log.noticeln(F("WiFi disconnected"));
+    WiFi.mode(WIFI_OFF);
+
+    fileLog.close();
+    LittleFS.end();
+
+    preferences.end();
     rtcValid = true;
     printTimestamp(&Serial);
     Serial.println("Going down");
-    run++;
+    run = run++ % 100000;
 
     Serial.flush();
     // Shut down RTC (Low Power) Peripherals
@@ -173,28 +176,54 @@ void setup()
     // Comment next line if you don’t want logging by MQTT
     bp.addOutput(&mqttLog);
 
+    // Check if any formatting is needed
+    Preferences preferences;
+    preferences.begin(SETTINGS_NAMESPACE, false);
+    if (!preferences.isKey("init")) {
+        Log.warningln(F("First start"));
+        preferences.end();
+        nvs_flash_erase();      // erase the NVS partition and...
+        nvs_flash_init();       // initialize the NVS partition.
+        esp_littlefs_format(PARTITION_LABEL);
+        preferences.begin(SETTINGS_NAMESPACE, false);
+        preferences.putBool("init", true);
+    }
+
+    fileLog = FilePrint();
+    bp.addOutput(&fileLog);
+
+    if (preferences.isKey("logLevel")) {
+        logLevel = preferences.getUShort("logLevel", LOG_LEVEL_NOTICE);
+        Log.noticeln(F("Reading log level from Flash: %d"), logLevel);
+    }
+    Log.setLevel(logLevel);
+
     Log.traceln(F("Logging ready"));
     // Log.noticeln(F("Loaded %l bytes from log buffer"), loaded);
 
-    preferences.begin("settings", false);
-    preferences.end();
+    if (getCpuFrequencyMhz() > 80) {
+        Log.noticeln("Current CPU frequency: %i MHz", getCpuFrequencyMhz());
+        setCpuFrequencyMhz(80);
+        Log.noticeln("Changed CPU frequency: %i MHz", getCpuFrequencyMhz());
+    }
 
-    // Read config from EEPROM
-    EEPROM.begin(EEPROM_SIZE);
+    // Read config from Flash
     for (int i = 0; i < PROBE_COUNT; i++)
     {
-        EEPROM.get(MIN_LEVEL + i * sizeof(minLevel[0]), minLevel[i]);
-        EEPROM.get(MAX_LEVEL + i * sizeof(maxLevel[0]), maxLevel[i]);
+        minLevel[i] = preferences.getInt(String("minLevel-" + i).c_str(), CLOSEST);
+        maxLevel[i] = preferences.getInt(String("maxLevel-" + i).c_str(), FARTHEST);
     }
-    EEPROM.get(SLEEP_TIME, sleepTime);
-    EEPROM.get(MAX_DIFFERENCE, maxDifference);
+    // Sleep time
+    sleepTime = preferences.getULong64("sleepTime", DEFAULT_SLEEP_TIME);
+
+    // Max difference
+    maxDifference = preferences.getUShort("maxDifference", DEFAULT_MAX_DIFFERENCE);
 
     // Checking the recorded value (should only be useful on the first start)
     if (isnan(sleepTime) || sleepTime <= 0)
     {
         sleepTime = DEFAULT_SLEEP_TIME;
-        EEPROM.put(SLEEP_TIME, sleepTime);
-        commit = true;
+        preferences.putULong64("sleepTime", DEFAULT_SLEEP_TIME);
         Log.warningln(F("Set default sleep time"));
     }
     Log.noticeln(F("Sleep time %i s"), (int)(sleepTime / 1e6));
@@ -205,16 +234,14 @@ void setup()
         {
             Log.warningln(F("minLevel[%d] incorrect: %d. Resetting to default"), i, minLevel[i]);
             minLevel[i] = CLOSEST;
-            EEPROM.put(MIN_LEVEL + i * sizeof(minLevel[0]), minLevel[i]);
-            commit = true;
+            preferences.putInt(String("minLevel-" + i).c_str(), minLevel[i]);
         }
 
         if (maxLevel[i] < CLOSEST || maxLevel[i] > FARTHEST)
         {
             Log.warningln(F("maxLevel[%d] incorrect: %d. Resetting to default"), i, maxLevel[i]);
             maxLevel[i] = FARTHEST;
-            EEPROM.put(MAX_LEVEL + i * sizeof(maxLevel[0]), maxLevel[i]);
-            commit = true;
+            preferences.putInt(String("maxLevel-" + i).c_str(), maxLevel[i]);
         }
 
         if (minLevel[i] == maxLevel[i])
@@ -222,9 +249,8 @@ void setup()
             Log.warningln(F("minLevel[%d] and maxLevel[%d] are the same: %d. Resetting to default"), i, i, maxLevel[i]);
             minLevel[i] = CLOSEST;
             maxLevel[i] = FARTHEST;
-            EEPROM.put(MIN_LEVEL + i * sizeof(minLevel[0]), minLevel[i]);
-            EEPROM.put(MAX_LEVEL + i * sizeof(maxLevel[0]), maxLevel[i]);
-            commit = true;
+            preferences.putInt(String("minLevel-" + i).c_str(), minLevel[i]);
+            preferences.putInt(String("maxLevel-" + i).c_str(), maxLevel[i]);
         }
 
         Log.noticeln(F("Levels[%d]: %d (deepest) - %d (highest)"), i, minLevel[i], maxLevel[i]);
@@ -234,9 +260,17 @@ void setup()
     {
         Log.warningln(F("Set default max difference"));
         maxDifference = DEFAULT_MAX_DIFFERENCE;
-        EEPROM.put(MAX_DIFFERENCE, maxDifference);
-        commit = true;
+        preferences.putUShort("maxDifference", maxDifference);
     }
+
+    if (run == 0) {
+        Log.noticeln(F("Reading run from Flash"));
+        if (preferences.isKey("run")){
+            run = preferences.getUInt("run", 0);
+        }
+    }
+
+    preferences.end();
 
     Log.verboseln(F("RTC Data:"));
     Log.verboseln(F(" - rtcValid: %T"), rtcValid);
@@ -300,6 +334,11 @@ void setup()
 
     if (reconnect())
     {
+        if (lastFailedConnection > 0) {
+            fileGet(fileLog.getLastLogFileName());
+        }
+
+        // MQTT connection succeeded
         mqttLog.setSuspend(false);
         client.loop();
 

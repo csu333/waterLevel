@@ -1,6 +1,8 @@
 #include "mqtt.h"
+#include <base64.h>
 
 extern bool removeConfigMsg;
+
 
 /********\
  * MQTT *
@@ -24,10 +26,10 @@ void configMsg(String topic, String payload)
 
     JsonObject conf = doc.as<JsonObject>();
 
-    // Init EEPROM
-    EEPROM.begin(EEPROM_SIZE);
-
     Log.traceln(F("Number of keypairs: %d"), conf.size());
+
+    Preferences preferences;
+    preferences.begin(SETTINGS_NAMESPACE, false);
 
     // Loop through all the key-value pairs in obj
     for (JsonPair p : conf)
@@ -71,8 +73,7 @@ void configMsg(String topic, String payload)
                     minLevel[index] = FARTHEST;
                     Log.warningln(F("Min level in beyond max range. Setting probe %d to %d mm"), index, FARTHEST);
                 }
-                EEPROM.put(MIN_LEVEL + index * sizeof(minLevel[0]), minLevel[index]);
-                commit = true;
+                preferences.putInt(String("minLevel" + index).c_str(), minLevel[index]);
 
                 Log.noticeln(F("New minimum level set for probe %d: %d"), index, minLevel[index]);
             }
@@ -94,8 +95,7 @@ void configMsg(String topic, String payload)
                     maxLevel[index] = CLOSEST;
                     Log.warningln(F("Max level in blind zone. Setting probe %d to %d mm"), index, CLOSEST);
                 }
-                EEPROM.put(MAX_LEVEL + index * sizeof(maxLevel[0]), maxLevel[index]);
-                commit = true;
+                preferences.putInt(String("maxLevel" + index).c_str(), maxLevel[index]);
 
                 Log.noticeln(F("New maximum level set for probe %d: %d"), index, maxLevel[index]);
             }
@@ -122,8 +122,7 @@ void configMsg(String topic, String payload)
                     sleepTime *= 1e6;
                 }
 
-                EEPROM.put(SLEEP_TIME, sleepTime);
-                commit = true;
+                preferences.putULong64("sleepTime", sleepTime);
 
                 Log.noticeln(F("New sleep time set: %i s"), (int)(sleepTime / 1e6));
             }
@@ -147,8 +146,7 @@ void configMsg(String topic, String payload)
 
                 maxDifference = p.value();
 
-                EEPROM.put(MAX_DIFFERENCE, maxDifference);
-                commit = true;
+                preferences.putUShort("maxDifference", maxDifference);
 
                 Log.noticeln(F("New max difference set: %d"), maxDifference);
             }
@@ -171,7 +169,7 @@ void configMsg(String topic, String payload)
                     logLevel = LOG_LEVEL_VERBOSE;
                 }
                 Log.setLevel(logLevel);
-
+                preferences.putUShort("logLevel", logLevel);
                 Log.noticeln(F("New log level set: %d"), logLevel);
             }
             else
@@ -192,6 +190,7 @@ void configMsg(String topic, String payload)
         }
     }
 
+    preferences.end();
     removeConfigMsg = true;
 }
 
@@ -212,6 +211,102 @@ void updateMsg(String topic, String payload)
         delay(1000);
         ESP.restart();
     }
+}
+
+void fileGet(String fileName)
+{
+
+    if (fileName.length() == 0)
+    {
+        Log.errorln(F("File name is empty"));
+        return;
+    }
+
+    if (!LittleFS.begin(false, BASE_PATH, MAX_OPEN_FILE, PARTITION_LABEL)) {
+        Log.errorln(F("Failed to mount LittleFS"));
+        return;
+    }
+
+    if (!LittleFS.exists(fileName))
+    {
+        Log.errorln(F("File does not exist"));
+        return;
+    }
+
+    File file = LittleFS.open(fileName, "r");
+    if (!file || file.isDirectory())
+    {
+        Log.errorln(F("Failed to open file"));
+        return;
+    }
+
+    String dataTopic = ROOT_TOPIC + "/file/data" + fileName;
+    Log.noticeln(F("Sending file %s (size = %d) on topic '%s'"), fileName.c_str(), file.size(), dataTopic.c_str());
+    String content = file.readString();
+    
+    if (content.length() == 0)
+    {
+        Log.warningln(F("Failed to read file"));
+        byte *contentByte = new byte[file.size()];
+        file.readBytes((char *)contentByte, file.size());
+        content = base64::encode(contentByte, file.size());
+    }
+    file.close();
+    
+    String contentPart = String(MQTT_MAX_PACKET_SIZE / 2);
+    for (int i = 0; i < content.length(); i += contentPart.length() + 1)
+    {
+        contentPart = content.substring(i, i + MQTT_MAX_PACKET_SIZE / 2);
+        contentPart = contentPart.substring(0, contentPart.lastIndexOf('\n'));
+        client.publish(dataTopic.c_str(), contentPart.c_str(), false);
+        client.flush();
+    }
+    
+    client.publish((ROOT_TOPIC + "/file/get").c_str(), new byte[0], 0, true);
+}
+
+void dirList(String dirName)
+{
+    Log.noticeln(F("Listing directory %s"), dirName.c_str());
+    if (dirName.length() == 0)
+    {
+        Log.errorln(F("Directory name is empty"));
+        return;
+    }
+
+    if (!LittleFS.begin(false, BASE_PATH, MAX_OPEN_FILE, PARTITION_LABEL)) {
+        Log.errorln(F("Failed to mount LittleFS"));
+        return;
+    }
+
+    if (!LittleFS.exists(dirName))
+    {
+        Log.errorln(F("Directory %s does not exist"), dirName.c_str());
+        return;
+    }
+
+    File file = LittleFS.open(dirName, "r");
+    if (!file || !file.isDirectory())
+    {
+        Log.errorln(F("Failed to open directory %s"), dirName.c_str());
+        return;
+    }
+
+    String dataTopic = ROOT_TOPIC + "/file/dir" + dirName;
+    file.rewindDirectory();
+
+    String nextFileName = file.getNextFileName();
+    while (nextFileName != "") {
+        File f = LittleFS.open(dirName + "/" + nextFileName, "r");
+        String data = nextFileName + "," + String(f.size());
+        f.close();
+        client.publish(dataTopic.c_str(), data.c_str(), false);
+        nextFileName = file.getNextFileName();
+    }
+
+    client.flush();
+    
+    client.publish((ROOT_TOPIC + "/file/dirlist").c_str(), new byte[0], 0, true);
 }
 
 void callback(char *topic, byte *payload, unsigned int length)
@@ -239,6 +334,17 @@ void callback(char *topic, byte *payload, unsigned int length)
     {
         configMsg(_topic, _payload);
     }
+
+    if (_topic.equals(ROOT_TOPIC + "/file/get") == 1)
+    {
+        fileGet(_payload);
+    }
+
+    if (_topic.equals(ROOT_TOPIC + "/file/dirlist") == 1)
+    {
+        dirList(_payload);
+    }
+
     callback_running = false;
 }
 
@@ -264,6 +370,8 @@ bool reconnect()
             client.setCallback(callback);
             client.subscribe((ROOT_TOPIC + "/config").c_str());
             client.subscribe((ROOT_TOPIC + "/update/url").c_str());
+            client.subscribe((ROOT_TOPIC + "/file/get").c_str());
+            client.subscribe((ROOT_TOPIC + "/file/dirlist").c_str());
             Log.noticeln(F("Subscription done"));
             delay(100);
             return true;

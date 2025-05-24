@@ -2,7 +2,9 @@
 
 float getVoltage()
 {
-    float floatVoltage = (analogReadMilliVolts(BAT_ADC)) * 1.55 / 1000;
+    //float floatVoltage = (analogReadMilliVolts(BAT_ADC)) * 1.55 / 1000;
+    int rawValue = analogRead(BAT_ADC);
+    float floatVoltage = rawValue * (3.3 / 1023.0 / 2);  // Convert ADC reading to voltage
     return floatVoltage;
 }
 
@@ -89,21 +91,22 @@ int getWaterLevel(uint8_t trigPin, uint8_t echoPin, uint8_t index)
 
     Log.noticeln("Distance %d: %d mm", index, distance);
 
+    Preferences preferences;
+    preferences.begin(SETTINGS_NAMESPACE, false);
+
     // Check that configuration values are correct
     if (distance > minLevel[index])
     {
         Log.warningln("Measured water level is lower than minimum configured level. Adapting setting probe %d to %d.", index, distance);
         // minimum level is lower than expected
         minLevel[index] = distance;
-        EEPROM.put(MIN_LEVEL + index * sizeof(minLevel[0]), distance);
-        commit = true;
+        preferences.putInt(String("minLevel" + String(index)).c_str(), distance);
     }
 
     if (minLevel[index] > FARTHEST)
     {
         Log.warningln(F("Min level too far. Setting probe %d to %d mm"), index, FARTHEST);
-        EEPROM.put(MIN_LEVEL + index * sizeof(minLevel[0]), FARTHEST);
-        commit = true;
+        preferences.putInt(String("minLevel" + index).c_str(), FARTHEST);
     }
 
     if (distance < maxLevel[index])
@@ -111,24 +114,22 @@ int getWaterLevel(uint8_t trigPin, uint8_t echoPin, uint8_t index)
         Log.warningln("Measured water level is higher than maximum configured level. Adapting setting probe %d to %d.", index, distance);
         // maximum level is higher than expected
         maxLevel[index] = distance;
-        EEPROM.put(MAX_LEVEL + index * sizeof(maxLevel[0]), distance);
-        commit = true;
+        preferences.putInt(String("maxLevel" + index).c_str(), distance);
     }
 
     if (maxLevel[index] < CLOSEST)
     {
         Log.warningln(F("Max level too close. Setting probe %d to %d mm"), index, CLOSEST);
-        EEPROM.put(MAX_LEVEL + index * sizeof(maxLevel[0]), CLOSEST);
-        commit = true;
+        preferences.putInt(String("maxLevel" + index).c_str(), CLOSEST);
     }
 
     if (minLevel[index] == maxLevel[index])
     {
         minLevel[index] = maxLevel[index] + 1;
         Log.warningln(F("Min and max levels are the sameon probe %d. Min set to %d mm"), index, minLevel[index]);
-        EEPROM.put(MIN_LEVEL + index * sizeof(minLevel[0]), minLevel[index]);
-        commit = true;
+        preferences.putInt(String("minLevel" + index).c_str(), minLevel[index]);
     }
+    preferences.end();
 
     return distance;
 }

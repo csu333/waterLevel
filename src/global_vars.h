@@ -4,6 +4,7 @@
 #include "Arduino.h"
 #include <WiFi.h>
 #include <PubSubClient.h>
+#include <Preferences.h>
 #include "PubSubPrint.h"
 
 // Constants
@@ -36,16 +37,18 @@
 #define gndPin0 6
 
 // Memory mapping
-#define MIN_LEVEL       0
-#define MAX_LEVEL       MIN_LEVEL + PROBE_COUNT * 4
-#define SLEEP_TIME      MAX_LEVEL + PROBE_COUNT * 4
-#define MAX_DIFFERENCE  SLEEP_TIME + 8
-#define EEPROM_SIZE     MAX_DIFFERENCE + 4
+#define SETTINGS_NAMESPACE "settings"
+//extern Preferences preferences;
+
+// File logging config
+#define MAX_LOG_FILE_NUMBER 20
+#define BASE_PATH "/littlefs"
+#define MAX_OPEN_FILE 2U
+#define PARTITION_LABEL "storage"
 
 // Water level mapping
 extern RTC_DATA_ATTR int minLevel[];
 extern RTC_DATA_ATTR int maxLevel[];
-extern RTC_DATA_ATTR bool commit;
 
 extern RTC_DATA_ATTR uint16_t lastMeasure[];
 extern RTC_DATA_ATTR uint8_t  failedConnection;
@@ -60,7 +63,7 @@ extern RTC_DATA_ATTR uint64_t sleepTime;
 extern RTC_DATA_ATTR uint8_t maxDifference;
 extern RTC_DATA_ATTR bool batteryAlertSent;
 extern RTC_DATA_ATTR bool waterLevelAlertSent;
-extern RTC_DATA_ATTR uint8_t logLevel;
+extern uint8_t logLevel;
 
 extern WiFiClient espClient;
 extern PubSubClient client;

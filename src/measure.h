@@ -1,7 +1,7 @@
 #include "Arduino.h"
 #include "global_vars.h"
 #include <ArduinoLog.h>
-#include <EEPROM.h>
+#include <Preferences.h>
 
 float getVoltage();
 int getWaterReading(uint8_t trigPin, uint8_t echoPin);
