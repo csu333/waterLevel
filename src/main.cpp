@@ -183,6 +183,7 @@ void IRAM_ATTR onTimer()
 
 void report()
 {
+    setCpuFrequencyMhz(80);
     if (!initWiFi())
     {
         startSleep();
