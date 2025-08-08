@@ -4,7 +4,7 @@
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 #include <ArduinoLog.h>
-#include "BufferPrint.h"
+#include "MultiPrint.h"
 #include "PubSubPrint.h"
 #include "FilePrint.h"
 #include "global_vars.h"

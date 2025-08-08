@@ -6,11 +6,9 @@ String FilePrint::getLastLogFileName() {
 }
 
 FilePrint::FilePrint() {
-    Log.verboseln("Mounting LittleFS partition");
+    Log.traceln("Mounting LittleFS partition");
     esp_err_t err;
     
-    //err = esp_littlefs_format(PARTITION_LABEL);
-
     if (!LittleFS.begin(false, BASE_PATH, MAX_OPEN_FILE, PARTITION_LABEL)){
         Log.errorln("LittleFS Mount Failed. Formatting");
         esp_err_t err = esp_littlefs_format(PARTITION_LABEL);
@@ -21,7 +19,7 @@ FilePrint::FilePrint() {
         }
     }
     File root = LittleFS.open("/");
-    Log.verboseln(F("List root file folder"));
+    Log.traceln(F("List root file folder"));
 
     if(!root){
         Log.errorln("Failed to open directory");
@@ -41,7 +39,7 @@ FilePrint::FilePrint() {
         File nextFile = LittleFS.open(nextFileName);
         uint16_t nextFileSize = nextFile.size();
         nextFile.close();
-        Log.traceln("  FILE: %s, SIZE: %d", nextFileName, nextFileSize);
+        Log.verboseln("  FILE: %s, SIZE: %d", nextFileName, nextFileSize);
 
         if (nextFileName.startsWith("/log") && nextFileSize > 0){
             String seq = nextFileName.substring(4, nextFileName.lastIndexOf("."));
@@ -56,7 +54,7 @@ FilePrint::FilePrint() {
         }
         nextFileName = root.getNextFileName();
     }
-    Log.verboseln("Last log sequence: %d", lastSeq);
+    Log.traceln("Last log sequence: %d", lastSeq);
     
 
     char buffer [20];

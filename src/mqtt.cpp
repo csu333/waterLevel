@@ -29,7 +29,10 @@ void configMsg(String topic, String payload)
     Log.traceln(F("Number of keypairs: %d"), conf.size());
 
     Preferences preferences;
-    preferences.begin(SETTINGS_NAMESPACE, false);
+    if (!preferences.begin(SETTINGS_NAMESPACE, false))
+    {
+        Log.errorln(F("Unable to open preferences"));
+    }    
 
     // Loop through all the key-value pairs in obj
     for (JsonPair p : conf)
@@ -169,6 +172,7 @@ void configMsg(String topic, String payload)
                     logLevel = LOG_LEVEL_VERBOSE;
                 }
                 Log.setLevel(logLevel);
+                esp_log_level_set("*", (esp_log_level_t) (logLevel == 0 ? 0 : logLevel - 1));
                 preferences.putUShort("logLevel", logLevel);
                 Log.noticeln(F("New log level set: %d"), logLevel);
             }

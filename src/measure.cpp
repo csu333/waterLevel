@@ -43,11 +43,6 @@ int getWaterLevel(uint8_t trigPin, uint8_t echoPin, uint8_t index)
 
     int distance = getWaterReading(trigPin, echoPin);
 
-    /*if (distance <= 0) {
-      Log.errorln(F("Error reading water level %d"), index);
-      return -1;
-    }*/
-
     // Check that returned value makes sense
 
     int i = 0;
@@ -71,7 +66,7 @@ int getWaterLevel(uint8_t trigPin, uint8_t echoPin, uint8_t index)
 
         if (distance < 0)
         {
-            Log.errorln(F("Error reading water level %d"), index);
+            Log.errorln(F("Error reading water level %d: No value returned"), index);
         }
 
         i++;
@@ -79,7 +74,6 @@ int getWaterLevel(uint8_t trigPin, uint8_t echoPin, uint8_t index)
 
     if (distance < CLOSEST)
     {
-        Log.errorln(F("Error reading water level %d"), index);
         return -1;
     }
 
@@ -92,44 +86,46 @@ int getWaterLevel(uint8_t trigPin, uint8_t echoPin, uint8_t index)
     Log.noticeln("Distance %d: %d mm", index, distance);
 
     Preferences preferences;
-    preferences.begin(SETTINGS_NAMESPACE, false);
+    if (preferences.begin(SETTINGS_NAMESPACE, false)) {
+        // Check that configuration values are correct
+        if (distance > minLevel[index])
+        {
+            Log.warningln("Measured water level is lower than minimum configured level. Adapting setting probe %d to %d.", index, distance);
+            // minimum level is lower than expected
+            minLevel[index] = distance;
+            preferences.putInt(String("minLevel-" + index).c_str(), distance);
+        }
 
-    // Check that configuration values are correct
-    if (distance > minLevel[index])
-    {
-        Log.warningln("Measured water level is lower than minimum configured level. Adapting setting probe %d to %d.", index, distance);
-        // minimum level is lower than expected
-        minLevel[index] = distance;
-        preferences.putInt(String("minLevel-" + String(index)).c_str(), distance);
-    }
+        if (minLevel[index] > FARTHEST)
+        {
+            Log.warningln(F("Min level too far. Setting probe %d to %d mm"), index, FARTHEST);
+            preferences.putInt(String("minLevel-" + index).c_str(), FARTHEST);
+        }
 
-    if (minLevel[index] > FARTHEST)
-    {
-        Log.warningln(F("Min level too far. Setting probe %d to %d mm"), index, FARTHEST);
-        preferences.putInt(String("minLevel-" + index).c_str(), FARTHEST);
-    }
+        if (distance < maxLevel[index])
+        {
+            Log.warningln("Measured water level is higher than maximum configured level. Adapting setting probe %d to %d.", index, distance);
+            // maximum level is higher than expected
+            maxLevel[index] = distance;
+            preferences.putInt(String("maxLevel-" + index).c_str(), distance);
+        }
 
-    if (distance < maxLevel[index])
-    {
-        Log.warningln("Measured water level is higher than maximum configured level. Adapting setting probe %d to %d.", index, distance);
-        // maximum level is higher than expected
-        maxLevel[index] = distance;
-        preferences.putInt(String("maxLevel-" + index).c_str(), distance);
-    }
+        if (maxLevel[index] < CLOSEST)
+        {
+            Log.warningln(F("Max level too close. Setting probe %d to %d mm"), index, CLOSEST);
+            preferences.putInt(String("maxLevel-" + index).c_str(), CLOSEST);
+        }
 
-    if (maxLevel[index] < CLOSEST)
-    {
-        Log.warningln(F("Max level too close. Setting probe %d to %d mm"), index, CLOSEST);
-        preferences.putInt(String("maxLevel-" + index).c_str(), CLOSEST);
+        if (minLevel[index] == maxLevel[index])
+        {
+            minLevel[index] = maxLevel[index] + 1;
+            Log.warningln(F("Min and max levels are the same on probe %d. Min set to %d mm"), index, minLevel[index]);
+            preferences.putInt(String("minLevel-" + index).c_str(), minLevel[index]);
+        }
+        preferences.end();
+    } else {
+        Log.errorln(F("Error opening preferences"));
     }
-
-    if (minLevel[index] == maxLevel[index])
-    {
-        minLevel[index] = maxLevel[index] + 1;
-        Log.warningln(F("Min and max levels are the sameon probe %d. Min set to %d mm"), index, minLevel[index]);
-        preferences.putInt(String("minLevel-" + index).c_str(), minLevel[index]);
-    }
-    preferences.end();
 
     return distance;
 }
