@@ -183,6 +183,7 @@ void IRAM_ATTR onTimer()
 
 void report()
 {
+    // Wifi needs 80 MHz to work
     setCpuFrequencyMhz(80);
     if (!initWiFi())
     {
