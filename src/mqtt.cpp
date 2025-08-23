@@ -152,7 +152,7 @@ void configMsg(String topic, String payload)
                     sleepTimeOnPower *= 1e6;
                 }
 
-                preferences.putULong64("sleepTimeOnPower", sleepTimeOnPower);
+                preferences.putULong64("sleepTimeOnPow", sleepTimeOnPower);
 
                 Log.noticeln(F("New sleep time on power set: %i s"), (int)(sleepTimeOnPower / 1e6));
             }
@@ -180,7 +180,7 @@ void configMsg(String topic, String payload)
                     onPowerThreshold = 2;
                 }
 
-                preferences.putFloat("onPowerThreshold", onPowerThreshold);
+                preferences.putFloat("onPowerThresh", onPowerThreshold);
 
                 Log.noticeln(F("New power threshold set: %i s"), (int)(onPowerThreshold / 1e6));
             }

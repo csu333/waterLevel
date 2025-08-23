@@ -379,8 +379,8 @@ void setup()
     sleepTime = preferences.getULong64("sleepTime", DEFAULT_SLEEP_TIME);
 
     // Sleep time on power
-    sleepTimeOnPower = preferences.getULong64("sleepTimeOnPower", DEFAULT_SLEEP_TIME);
-    onPowerThreshold = preferences.getFloat("onPowerThreshold", BATTERY_ON_POWER_THRESHOLD);
+    sleepTimeOnPower = preferences.getULong64("sleepTimeOnPow", DEFAULT_SLEEP_TIME);
+    onPowerThreshold = preferences.getFloat("onPowerThresh", BATTERY_ON_POWER_THRESHOLD);
 
     // Max difference
     maxDifference = preferences.getUShort("maxDifference", DEFAULT_MAX_DIFFERENCE);
