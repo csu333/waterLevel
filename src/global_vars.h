@@ -10,6 +10,7 @@
 // Constants
 #define BATTERY_ALERT_THRESHOLD 2.0 // V
 #define BATTERY_ALERT_REARM 2.1     // V
+#define BATTERY_ON_POWER_THRESHOLD 3.5 // V
 
 #define DEFAULT_MAX_DIFFERENCE 200// mm
 
@@ -38,7 +39,6 @@
 
 // Memory mapping
 #define SETTINGS_NAMESPACE "settings"
-//extern Preferences preferences;
 
 // File logging config
 #define MAX_LOG_FILE_NUMBER 20
@@ -60,10 +60,12 @@ extern long wifiStart;
 
 // Configuration
 extern RTC_DATA_ATTR uint64_t sleepTime;
-extern RTC_DATA_ATTR uint8_t maxDifference;
-extern RTC_DATA_ATTR bool batteryAlertSent;
-extern RTC_DATA_ATTR bool waterLevelAlertSent;
-extern RTC_DATA_ATTR uint8_t logLevel;
+extern RTC_DATA_ATTR uint64_t sleepTimeOnPower;
+extern RTC_DATA_ATTR float    onPowerThreshold;
+extern RTC_DATA_ATTR uint8_t  maxDifference;
+extern RTC_DATA_ATTR bool     batteryAlertSent;
+extern RTC_DATA_ATTR bool     waterLevelAlertSent;
+extern RTC_DATA_ATTR uint8_t  logLevel;
 
 extern WiFiClient espClient;
 extern PubSubClient client;
@@ -86,6 +88,6 @@ extern IPAddress dns;
 
 // MQTT broker IP Address
 extern IPAddress MQTT_SERVER;
-extern String ROOT_TOPIC;
+extern String    ROOT_TOPIC;
 
 #endif

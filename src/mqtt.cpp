@@ -84,10 +84,10 @@ void configMsg(String topic, String payload)
             {
                 Log.verboseln(F("Value unchanged. Ignoring"));
             }
-            /*******************/
-            //    max level
-            /*******************/
         }
+        /*******************/
+        //    max level
+        /*******************/
         else if (strcmp(cKey, "maxLevel") == 0)
         {
             if (isnan(maxLevel[index]) || maxLevel[index] != (int)p.value())
@@ -106,10 +106,10 @@ void configMsg(String topic, String payload)
             {
                 Log.verboseln(F("Value unchanged. Ignoring"));
             }
-            /*******************/
-            //   sleep Time
-            /*******************/
         }
+        /*******************/
+        //   sleep Time
+        /*******************/
         else if (strcmp(key, "sleepTime") == 0)
         {
             if (isnan(sleepTime) || sleepTime / 1e6 != p.value())
@@ -133,10 +133,65 @@ void configMsg(String topic, String payload)
             {
                 Log.verboseln(F("Value unchanged. Ignoring"));
             }
-            /*******************/
-            // max Difference
-            /*******************/
         }
+        /***************************/
+        //   sleep Time On Power
+        /***************************/
+        else if (strcmp(key, "sleepTimeOnPower") == 0)
+        {
+            if (isnan(sleepTimeOnPower) || sleepTimeOnPower / 1e6 != p.value())
+            {
+                sleepTimeOnPower = p.value();
+
+                if (sleepTimeOnPower > 1e12)
+                {
+                    sleepTimeOnPower = 1e18;
+                }
+                else
+                {
+                    sleepTimeOnPower *= 1e6;
+                }
+
+                preferences.putULong64("sleepTimeOnPower", sleepTimeOnPower);
+
+                Log.noticeln(F("New sleep time on power set: %i s"), (int)(sleepTimeOnPower / 1e6));
+            }
+            else
+            {
+                Log.verboseln(F("Value unchanged. Ignoring"));
+            }
+        }
+        /***************************/
+        //   On Power Threshold
+        /***************************/
+        else if (strcmp(key, "onPowerThreshold") == 0)
+        {
+            if (isnan(onPowerThreshold) || onPowerThreshold != p.value())
+            {
+                onPowerThreshold = p.value();
+
+                if (onPowerThreshold > 10)
+                {
+                    onPowerThreshold = 10;
+                }
+
+                if (onPowerThreshold < 2)
+                {
+                    onPowerThreshold = 2;
+                }
+
+                preferences.putFloat("onPowerThreshold", onPowerThreshold);
+
+                Log.noticeln(F("New power threshold set: %i s"), (int)(onPowerThreshold / 1e6));
+            }
+            else
+            {
+                Log.verboseln(F("Value unchanged. Ignoring"));
+            }
+        }
+        /*******************/
+        // max Difference
+        /*******************/
         else if (strcmp(key, "maxDifference") == 0)
         {
             if (maxDifference != p.value())
@@ -157,10 +212,10 @@ void configMsg(String topic, String payload)
             {
                 Log.verboseln(F("Value unchanged. Ignoring"));
             }
-            /*******************/
-            //     Log level
-            /*******************/
         }
+        /*******************/
+        //     Log level
+        /*******************/
         else if (strcmp(key, "logLevel") == 0)
         {
             if (logLevel != p.value())

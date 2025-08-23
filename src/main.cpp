@@ -47,13 +47,15 @@ RTC_DATA_ATTR uint32_t run = 0;
 WiFiClient   espClient;
 PubSubClient client(espClient);
 PubSubPrint  mqttLog = PubSubPrint(&client, "");
-MultiPrint mp;
+MultiPrint   mp;
 FilePrint    fileLog;
 
 bool callback_running = false;
 
 float                  batteryLevel = 0; // value read from A0
 RTC_DATA_ATTR uint64_t sleepTime = DEFAULT_SLEEP_TIME;
+RTC_DATA_ATTR uint64_t sleepTimeOnPower = DEFAULT_SLEEP_TIME;
+RTC_DATA_ATTR float    onPowerThreshold = BATTERY_ON_POWER_THRESHOLD;
 RTC_DATA_ATTR int      minLevel[PROBE_COUNT];
 RTC_DATA_ATTR int      maxLevel[PROBE_COUNT];
 RTC_DATA_ATTR uint8_t  maxDifference;
@@ -79,6 +81,13 @@ volatile bool timeoutFlag = false;
 void startSleep()
 {
     Log.verboseln(F("Going to sleep"));
+
+    uint64_t st = sleepTime;
+
+    if (getVoltage() > onPowerThreshold) {
+        st = sleepTimeOnPower;
+        Log.verboseln(F("Power threshold reached."));
+    }
 
     mp.flush();
     mp.removeOutput(&mqttLog);
@@ -112,7 +121,7 @@ void startSleep()
 
         if (WiFi.isConnected())
         {
-            WiFi.disconnect(true);
+            WiFi.disconnect(true, true);
             Log.noticeln(F("WiFi disconnected"));
             WiFi.mode(WIFI_OFF);
         }
@@ -145,7 +154,7 @@ void startSleep()
     rtcValid = true;
     printTimestamp(&Serial);
     Serial.print("Going down for ");
-    Serial.print(sleepTime / 1000);
+    Serial.print(st / 1000);
     Serial.println("ms");
 
     Serial.flush();
@@ -158,7 +167,7 @@ void startSleep()
     // Shut down Crystal Oscillator XTAL 
     esp_sleep_pd_config(ESP_PD_DOMAIN_XTAL,         ESP_PD_OPTION_OFF);
     // Enter Deep Sleep
-    esp_sleep_enable_timer_wakeup(sleepTime);
+    esp_sleep_enable_timer_wakeup(st);
     esp_deep_sleep_start();
 
     Serial.println(F("What... I'm not asleep?!?")); // it should never get here
@@ -183,8 +192,12 @@ void IRAM_ATTR onTimer()
 
 void report()
 {
-    // Wifi needs 80 MHz to work
-    setCpuFrequencyMhz(80);
+    // Wifi needs 80+ MHz to work
+    if (getCpuFrequencyMhz() < 80)
+    {
+        setCpuFrequencyMhz(80);
+    }
+
     if (!initWiFi())
     {
         startSleep();
@@ -217,6 +230,7 @@ void report()
 
         // Reporting voltage
         client.publish((ROOT_TOPIC + "/voltage").c_str(), (String(batteryLevel)).c_str(), true);
+        client.publish((ROOT_TOPIC + "/availability").c_str(), "online", false);
         client.loop();
         Log.noticeln(F("Measurements sent"));
 
@@ -363,6 +377,10 @@ void setup()
     }
     // Sleep time
     sleepTime = preferences.getULong64("sleepTime", DEFAULT_SLEEP_TIME);
+
+    // Sleep time on power
+    sleepTimeOnPower = preferences.getULong64("sleepTimeOnPower", DEFAULT_SLEEP_TIME);
+    onPowerThreshold = preferences.getFloat("onPowerThreshold", BATTERY_ON_POWER_THRESHOLD);
 
     // Max difference
     maxDifference = preferences.getUShort("maxDifference", DEFAULT_MAX_DIFFERENCE);

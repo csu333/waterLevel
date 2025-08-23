@@ -8,6 +8,7 @@ This project uses an ESP32 on battery to measure the water level in a tank an re
  Optional:
   * A 16340 battery
   * Wifi antenna
+  * A solar panel to charge the battery
 
 The sensor should be placed in the tank where it will not pick up a reading from other obstacle so mind the [reading radius](https://github.com/tomaskovacik/kicad-library/blob/master/library/datasheet/K02-AJ-SR04/AJ-SR04M-T-X.zh-CN.en.pdf) 
 
@@ -20,7 +21,9 @@ Rename config.cpp.sample to config.h and adapt the settings to your environment.
  The software is configured over MQTT. You need to send a JSON message to the device on topic **ROOT_TOPIC/config** with configuration values. The possible settings are (case-sensitive):
   * *minValue* (Default **200**mm): the value read when there is no water in the tank. The sensor has a blind area of 20cm so the default value is as low has it can get. This ensures that the correct value is detected as the level in the tank changes. 
   * *maxValue* (Default **8000**mm): the value read when the tank is full. The sensor cannot measure distamces of more than 8m.This ensures that the correct value is detected as the level in the tnak changes. 
-  * *sleepTime* (Default **300**s): the time between 2 readings in seconds. This setting has a huge impact on autonomy.
+  * *sleepTime* (Default **5**s): the time between 2 readings in seconds. This setting has a huge impact on autonomy.
+  * *sleepTimeOnPower* (Default **5**s): the time between 2 readings in seconds when dthe system is on USB power.
+  * *onPowerThreshold* (Default **3.5**V): the threshold above which the sleepTimeOnPower sleep delay will be used instead of sleepTime.
   * *maxDifference* (Default **200**mm): the maximum difference allowed between 2 readings. If the difference is higher, another reading is performed.
   * *logLevel* (Default **3**): a value [between 0 and 6](https://github.com/thijse/Arduino-Log) to define how much is logged.
 
