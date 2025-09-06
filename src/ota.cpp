@@ -6,7 +6,7 @@ bool isValidContentType = false;
 
 extern WiFiClient espClient;
 
-TftpClient<WiFiUDP> tftp;
+TFTPClient tftp;
 
 String getHeaderValue(String header, String headerName) {
     return header.substring(strlen(headerName.c_str()));
@@ -65,114 +65,28 @@ String getHostName(String url) {
     return hostName;
 }
 
-int getDownloadSize(HttpClient http, String bin) {
-    //Log.noticeln(F("Connecting to: http://%s/"), http.);
-
-    //if (!espClient.connect(host.c_str(), port)) {
-    if (!http.get(bin.c_str())) {
-        // Connect failed
-        // Probably a choppy network?
-        Log.errorln(F("Connection failed. Please check your setup"));
-        return -1;
-    }
-
-    // Flush data to avoid collision with other streams
-    /*espClient.flush();
-    delay(50);
-    espClient.flush();*/
-    
-    // Connection Succeed.
-    // Fecthing the bin    
-    // Get the contents of the bin file
-    /*String getRequest = "GET " + bin + " HTTP/1.1\r\n" +
-        "Host: " + host + "\r\n" +
-        "Cache-Control: no-cache\r\n" +
-        "Connection: close\r\n"
-        "\r\n";
-    espClient.print(getRequest);*/
+int getDownloadSize(esp_http_client_handle_t http) {
     delay(50);
 
     unsigned long timeout = millis();
 
-    //while (espClient.available() == 0) {
-    while (http.available() == 0) {
-        if (millis() - timeout > 5000) {
-            Log.errorln("client Timeout !");
-            //espClient.stop();
-            http.endRequest();
-            return -1;
-        }
-    }
-
-    /*while (http.available()) {
-        // read line till /n
-        String line = espClient.readStringUntil('\n');
-        // remove space, to check if the line is end of headers
-        line.trim();
-        Log.verboseln("Received: %s", line.c_str());
-
-        // if the the line is empty,
-        // this is end of headers
-        // break the while and feed the
-        // remaining `client` to the
-        // Update.writeStream();
-        if (!line.length()) {
-            //headers ended
-            break; // and get the OTA started
-        }
-
-        // Check if the HTTP Response is 200
-        // else break and Exit Update
-        if (line.startsWith("HTTP/1.1")) {
-            if (line.indexOf("200") < 0) {
-                Log.errorln("Got a non 200 status code from server (%s). Exiting OTA Update.", line.c_str());
-                return false;
-            }
-        }
-
-        // extract headers here
-        // Start with content length
-        if (line.startsWith("Content-Length: ")) {
-            contentLength = atoi((getHeaderValue(line, "Content-Length: ")).c_str());
-            Log.noticeln("Got %d bytes from server", contentLength);
-        }
-
-        // Next, the content type
-        if (line.startsWith("Content-Type: ")) {
-            String contentType = getHeaderValue(line, "Content-Type: ");
-            Log.noticeln("Got %s payload.", contentType.c_str());
-            if (contentType != "application/octet-stream") {
-                Log.warningln(F("Content type is not supported: %s. Trying anyway"), contentType);
-            }
-            isValidContentType = true;
-        }
-    }*/
-    if (!http.responseStatusCode() == 200) {
-        Log.errorln("Got a non 200 status code from server (%d). Exiting OTA Update.", http.responseStatusCode());
+    contentLength = esp_http_client_fetch_headers(http);
+    int returnCode = !esp_http_client_get_status_code(http);
+    if (returnCode && returnCode != 200) {
+        Log.errorln("Got a non 200 status code from server (%d). Exiting OTA Update.", returnCode);
         return -1;
     }
 
-    contentLength = http.contentLength();
     Log.noticeln("Got %d bytes from server", contentLength);
-    isValidContentType = true;
 
-    // Check what is the contentLength and if content type is `application/octet-stream`
-    Log.noticeln("contentLength : %d, isValidContentType : %d", contentLength, isValidContentType);
-
-    if (contentLength && isValidContentType) {
-        return contentLength;
-    }
-
-    return -1;
+    return contentLength;
 }
 
 bool update(String url, int port) {
     bool isHttp = url.startsWith("http://");
     bool isTftp = url.startsWith("tftp://");
     int announcedSize = -1;
-    HttpClient * httpClient;
-
-    //espClient = WiFiClient(espClient);
+    esp_http_client_handle_t http;
 
     const esp_partition_t *running  = esp_ota_get_running_partition();
     Log.traceln("Configured partition: %s", running->label);
@@ -182,8 +96,6 @@ bool update(String url, int port) {
         Log.traceln("Announced size: %d", announcedSize);
         url = url.substring(0, url.indexOf(","));
     }
-
-    TftpClient<WiFiUDP> tftp;
 
     if (!isHttp && !isTftp) {
         Log.warningln(F("Unqualified URL: %s. Assuming http"), url.c_str());
@@ -195,17 +107,41 @@ bool update(String url, int port) {
 
     int contentLength = 0;
     if (isHttp) {
-        HttpClient http = HttpClient(espClient, host, port);
-        httpClient = &http;
-        contentLength = getDownloadSize(http, bin);
+        esp_http_client_config_t config = {
+            .url = url.c_str()
+        };
+        http = esp_http_client_init(&config);
+        if (esp_http_client_open(http, 0) == ESP_FAIL) {
+            Log.errorln("Failed to open HTTP connection");
+            esp_http_client_cleanup(http);
+            return false;
+        }
+        
+        if (esp_http_client_write(http, NULL, 0) < 0) {
+            Log.errorln("Failed to send HTTP request");
+            esp_http_client_cleanup(http);
+            return false;
+        }
+
+        contentLength = getDownloadSize(http);
         if (contentLength <= 0) {
+            Log.errorln("There was no content in the response");
+            esp_http_client_cleanup(http);
             return false;
         }
         Log.traceln("HTTP content length: %d", contentLength); 
     }
 
+    const esp_partition_t *ota = esp_ota_get_next_update_partition(NULL);
+    if (ota == NULL) {
+        Log.errorln("Failed to get next partition");
+        esp_http_client_cleanup(http);
+        return false;
+    }
+
+    Log.traceln("Next partition: %s", ota->label);
+
     if (isTftp && announcedSize <= 0) {
-        const esp_partition_t *ota = esp_ota_get_next_update_partition(NULL);
         contentLength = ota->size - 1;
         Log.traceln("TFTP do not provide size. Using partition size: %d on partition %s", contentLength, ota->label);
     }
@@ -217,7 +153,6 @@ bool update(String url, int port) {
     // check contentLength and content type
     if (contentLength <= 0) {
         Log.errorln("There was no content in the response");
-        //espClient.flush();
         return false;
     }
 
@@ -228,36 +163,31 @@ bool update(String url, int port) {
         // Understand the partitions and
         // space availability
         Log.errorln("Not enough space to begin OTA");
-        //espClient.flush();
         return false;
     }
 
     Log.noticeln("Begin OTA. This may take 2 - 5 mins to complete. Things might be quite for a while.. Patience!");
 
     size_t written = 0;
-    uint8_t buffer[512];
+    const int BUFFSIZE = 512;
+    char buffer[BUFFSIZE];
     written = 0;
     uint16_t wait = 0;
     uint32_t received = 0;
+    bool image_header_was_checked = false;
+    esp_ota_handle_t update_handle = 0;
+    esp_err_t ret;
+    int read;
 
     // HTTP download
     if (isHttp) {
-    Log.noticeln("Downloading %s", bin.c_str());
-        //written = Update.writeStream(http.read());
-        while (!httpClient->endOfStream()) {
-            size_t read = httpClient->read(buffer, sizeof(buffer));
-            received += read;
-            Log.traceln("Read %d bytes. Content length so far: %d", read, received);
-            if (read) {
-                size_t w = Update.write(buffer, read);
-                if (w != read) {
-                    Log.errorln("Write failed (read: %d, written: %d)", read, w);
-                    break;
-                }
-                written += w;
-                Log.verboseln("Written %d bytes, total: %d", w, written);
-            }
-        }
+        Log.noticeln("Downloading %s", bin.c_str());
+
+        if (contentLength <= 0) {
+            contentLength = OTA_SIZE_UNKNOWN;
+        } 
+
+        read = esp_http_client_read(http, buffer, BUFFSIZE);
     }
 
     // TFTP Download
@@ -273,51 +203,99 @@ bool update(String url, int port) {
 
         Log.traceln("TFTP IP: %s", tftpIP.toString().c_str());
 
-        if (!tftp.beginDownload(bin.c_str(), tftpIP)) {
-            Log.errorln("TFTP begin failed");
+        if (!tftp.initialize()) {
+            Log.errorln("TFTP initialize failed: %s", tftp.getLastErrorMessage());
             return false;
         }
 
-        while (!tftp.available() && wait++ < 5000) {
-            delay(1);
+        if (!tftp.beginDownload(tftpIP, bin.c_str())) {
+            Log.errorln("TFTP begin download failed: %s", tftp.getLastErrorMessage());
+            return false;
         }
-        
-        while (!tftp.finished() && !tftp.error()) {
-            size_t read = tftp.read(buffer, sizeof(buffer));
-            received += read;
-            Log.traceln("Read %d bytes. Content length so far: %d", read, received);
-            if (read) {
-                size_t w = Update.write(buffer, read);
-                if (w != read) {
-                    Log.errorln("Write failed (read: %d, written: %d)", read, w);
-                    break;
+
+        read = tftp.readBlock((uint8_t*) buffer, BUFFSIZE);
+    }
+
+    while (read > 0 || (isTftp && (!tftp.isDownloadComplete() || tftp.getLastErrorCode() != 0))) {
+        received += read;
+        Log.traceln("Read %d bytes. Content length so far: %d", read, received);
+
+        if (image_header_was_checked == false) {
+            esp_app_desc_t new_app_info;
+            if (read > sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t) + sizeof(esp_app_desc_t)) {
+                // check current version with downloading
+                if (esp_efuse_check_secure_version(new_app_info.secure_version) == false) {
+                    Log.errorln(F("This a new app can not be downloaded due to a secure version is lower than stored in efuse."));
+                    if (isHttp) { esp_http_client_cleanup(http); }
+                    if (isTftp) { tftp.stop(); }
+                    return false;
                 }
-                written += w;
-                Log.verboseln("Written %d bytes, total: %d", w, written);
+
+                if (!update_handle) {
+                    ret = esp_ota_begin(ota, contentLength, &update_handle);
+                    if (ret != ESP_OK) {
+                        Log.errorln("OTA begin failed: %s", esp_err_to_name(ret));
+
+                        if (update_handle) {
+                            esp_ota_abort(update_handle);
+                        }
+
+                        if (isHttp) { esp_http_client_cleanup(http); }
+                        if (isTftp) { tftp.stop(); }
+
+                        return false;
+                    }
+                    
+                }
+
+                image_header_was_checked = true;
+
             }
-            delay(10);
         }
 
-        if (tftp.finished()) {
-            Log.traceln("TFTP transfer finished");
-        }
+        if (read) {
+            ret = esp_ota_write(update_handle, (const void *)buffer, read);
 
-        if (!tftp.error()) {
-            size_t read = tftp.read(buffer, sizeof(buffer));
-            Update.write(buffer, read);
-            tftp.stop();
-            Log.traceln("TFTP closed");
-        }
+            if (ret != ESP_OK) {
+                Log.errorln("OTA write failed: %s", esp_err_to_name(ret));
+                esp_ota_abort(update_handle);
+                esp_http_client_cleanup(http);
+                return false;
+            }
 
-        if (contentLength <= 0) {
-            contentLength = received;
+            written += read;
+            Log.verboseln("Written %d bytes, total: %d", read, written);
         }
+        if (isHttp) { read = esp_http_client_read(http, buffer, BUFFSIZE); }
+        if (isTftp) { read = tftp.readBlock((uint8_t*) buffer, BUFFSIZE); }
+    }
 
-        if (tftp.error()) {
-            Log.errorln("TFTP error occurred: %s", tftp.errorMessage().c_str());
-            tftp.stop();
-            return false;
-        }
+    if (isTftp && tftp.getLastErrorCode()) {
+        Log.errorln("TFTP error: %s", tftp.getLastErrorMessage());
+        tftp.stop();
+        return false;
+    }
+
+    if (tftp.isDownloadComplete()) {
+        tftp.stop();
+        Log.noticeln("TFTP download complete");
+        contentLength = written;
+    }
+
+    Log.noticeln("OTA download finished");
+    ret = esp_ota_end(update_handle);
+    if (ret != ESP_OK) {
+        Log.errorln("OTA end failed: %s", esp_err_to_name(ret));
+        esp_http_client_cleanup(http);
+        return false;
+    }
+
+    Log.noticeln("Setting boot partition: %s", ota->label);
+    ret = esp_ota_set_boot_partition(ota);
+    if (ret != ESP_OK) {
+        Log.errorln("OTA set boot partition failed: %s", esp_err_to_name(ret));
+        esp_http_client_cleanup(http);
+        return false;
     }
 
     if (written == contentLength) {
@@ -325,17 +303,6 @@ bool update(String url, int port) {
     }
     else {
         Log.warningln("Written only : %d/%d.", written, contentLength);
-        return false;
-    }
-
-    // TFTP does not provide file size 
-    if (!Update.end(isTftp && announcedSize <= 0)) {
-        Log.errorln("Error Occurred. %s (%d)", Update.errorString(), Update.getError());
-        return false;
-    }
-
-    if (!Update.isFinished()) {
-        Log.errorln("Update not finished? Something went wrong!");
         return false;
     }
 

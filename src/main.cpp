@@ -156,8 +156,8 @@ void startSleep()
     Serial.print("Going down for ");
     Serial.print(st / 1000);
     Serial.println("ms");
-
     Serial.flush();
+
     // Shut down RTC (Low Power) Peripherals
     esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH,   ESP_PD_OPTION_OFF);
     // Shut down RTC Slow Memory
@@ -284,6 +284,9 @@ void setup()
     WiFi.mode(WIFI_OFF);
     WiFi.setSleep(true);
     delayMicroseconds(10);
+
+    // Avoid rollback after OTA
+    esp_ota_mark_app_valid_cancel_rollback();
 
 
     Log.setPrefix(printPrefix); // set prefix similar to NLog

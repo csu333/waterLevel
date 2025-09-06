@@ -51,7 +51,7 @@ Make sure you send the config with the **Retain** option. The values are read at
 ### Getting log files
 It is possible to get log files from previous run. Send the file name on **ROOT_TOPIC/file/get** (e.g. "/log001.txt"). The content is sent on the **ROOT_TOPIC/file/data** topic. You can also get a list of all the files by sending a folder name (typically "/") on **ROOT_TOPIC/file/dirlist**. The result is sent on **ROOT_TOPIC/file/dir/FOLDER_NAME** (i.e. if you requested the listing for the root folder, the answer would come on **ROOT_TOPIC/file/dir/**).
 
-### Remote update (not working)
+### Remote update
 You can update the firmware remotely by sending the url of the firmware on topic **ROOT_TOPIC/update/url**. Only works in http port 80 or using TFTP. On Linux, you can easily start a TFTP server using:
 ```bash
 dnsmasq --port=0 --enable-tftp --tftp-root=/tmp --tftp-no-blocksize --user=root --group=root

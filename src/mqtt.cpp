@@ -267,7 +267,10 @@ void updateMsg(String topic, String payload)
     {
         Log.noticeln(F("Ready to restart"));
         client.publish((ROOT_TOPIC + "/update/url").c_str(), new byte[0], 0, true);
+        client.flush();
+        client.loop();
         delay(1000);
+        client.loop();
         ESP.restart();
     }
 }
