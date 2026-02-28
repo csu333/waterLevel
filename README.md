@@ -57,6 +57,8 @@ You can update the firmware remotely by sending the url of the firmware on topic
 dnsmasq --port=0 --enable-tftp --tftp-root=/tmp --tftp-no-blocksize --user=root --group=root
 ```
 
+Note: when flashing through OTA, the microcontroller will alternate between partitions ota_0 and ota_1. Flashing through cable might apply on the partition that is not designated as boot partition. Make sure to flash the boot partition by editing the `board_upload.offset_address` in the platformio.ini file.
+
 ## Hardware setup
 This is how you connect your ESP32:
 ![Probe connections](Probe%20connections.drawio.png "Probe connections")

@@ -17,5 +17,6 @@
 #include "esp_littlefs.h"
 #include <FS.h>
 #include <nvs_flash.h>
+#include "version.h"
 
 

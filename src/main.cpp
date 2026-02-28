@@ -14,20 +14,6 @@ RTC_DATA_ATTR char msg[MSG_BUFFER_SIZE];
  * Structure *
 \*************/
 
-// See https://www.bakke.online/index.php/2017/06/24/esp8266-wifi-power-reduction-avoiding-network-scan/
-// The ESP8266 RTC memory is arranged into blocks of 4 bytes. The access methods read and write 4 bytes at a time,
-// so the RTC data structure should be padded to a 4-byte multiple.
-/*struct Rtc_Data {
-  uint8_t  channel;                           // 1 byte,    5 in total
-  uint8_t  bssid[6];                          // 6 bytes,   11 in total
-  uint8_t  failedConnection;                  // 1 byte,    12 in total
-  uint8_t  waterLevelAlertSent;               // 1 byte,    13 in total
-  uint16_t lastMeasure[PROBE_COUNT];          // 2*PROBE_COUNT bytes
-  uint16_t bufferPosition;                    // 2 bytes
-  uint8_t  logBuffer[400-2*PROBE_COUNT];      // 400 bytes
-};*/
-
-// RTC_DATA_ATTR struct Rtc_Data rtcData;
 RTC_DATA_ATTR uint8_t  channel;
 RTC_DATA_ATTR uint8_t  bssid[6];
 RTC_DATA_ATTR uint8_t  failedConnection;
@@ -80,11 +66,11 @@ volatile bool timeoutFlag = false;
 
 void startSleep()
 {
-    Log.verboseln(F("Going to sleep"));
+    Log.noticeln(F("Going to sleep"));
 
     uint64_t st = sleepTime;
 
-    if (getVoltage() > onPowerThreshold) {
+    if (batteryLevel > onPowerThreshold) {
         st = sleepTimeOnPower;
         Log.verboseln(F("Power threshold reached."));
     }
@@ -100,14 +86,18 @@ void startSleep()
 
     if (!timeoutFlag)
     {
+        // Disconnect MQTT
         if (client.connected())
         {
             client.disconnect();
+            Log.noticeln(F("MQTT client disconnected"));
         }
         else
         {
             Log.warningln(F("MQTT client not connected"));
         }
+
+        // Stop accepting WiFi messages
         if (espClient.connected())
         {
             espClient.flush();
@@ -122,8 +112,8 @@ void startSleep()
         if (WiFi.isConnected())
         {
             WiFi.disconnect(true, true);
-            Log.noticeln(F("WiFi disconnected"));
             WiFi.mode(WIFI_OFF);
+            Log.noticeln(F("WiFi disconnected"));
         }
         else
         {
@@ -158,6 +148,11 @@ void startSleep()
     Serial.println("ms");
     Serial.flush();
 
+    // Set pins to input to avoid current leak
+    pinMode(trigPin0, INPUT);
+    pinMode(trigPin1, INPUT);
+    pinMode(gndPin0, INPUT);
+    
     // Shut down RTC (Low Power) Peripherals
     esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH,   ESP_PD_OPTION_OFF);
     // Shut down RTC Slow Memory
@@ -167,6 +162,7 @@ void startSleep()
     // Shut down Crystal Oscillator XTAL 
     esp_sleep_pd_config(ESP_PD_DOMAIN_XTAL,         ESP_PD_OPTION_OFF);
     // Enter Deep Sleep
+    esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
     esp_sleep_enable_timer_wakeup(st);
     esp_deep_sleep_start();
 
@@ -265,9 +261,9 @@ void report()
         }
 
         // Preparing for sleep
-        client.unsubscribe((ROOT_TOPIC + "/config").c_str());
-        client.disconnect();
-        delay(5);
+        //client.unsubscribe((ROOT_TOPIC + "/config").c_str());
+        //client.disconnect();
+        //delay(5);
     }
 
     startSleep();
@@ -371,6 +367,7 @@ void setup()
 
     Log.traceln(F("Logging ready"));
     Log.noticeln(F("Loaded %l bytes from log buffer"), loaded);
+    Log.noticeln(F("Running version number %d"), BUILD_VERSION);
 
     // Read config from Flash
     for (int i = 0; i < PROBE_COUNT; i++)

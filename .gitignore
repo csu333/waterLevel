@@ -3,3 +3,5 @@
 .vscode/*
 .pio
 src/config.cpp
+version_number
+include/version.h
