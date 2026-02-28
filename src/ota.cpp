@@ -88,6 +88,11 @@ bool update(String url, int port) {
     int announcedSize = -1;
     esp_http_client_handle_t http;
 
+    if (!isHttp && !isTftp) {
+        Log.errorln(F("URL protocol not specified. You should specify http:// or tftp://. Not updating"));
+        return false;
+    }
+
     const esp_partition_t *running  = esp_ota_get_running_partition();
     Log.traceln("Configured partition: %s", running->label);
 
@@ -102,8 +107,18 @@ bool update(String url, int port) {
         isHttp = true;
     }
 
-    String bin = getBinName(url);
     String host = getHostName(url);
+
+    if (host.length() <= 0) {
+        Log.errorln(F("Impossible to extract host name or IP of the OTA file"));
+        return false;
+    }
+
+    String bin = getBinName(url);
+    if (bin.length() <= 0) {
+        Log.errorln(F("Impossible to extract name of the OTA file"));
+        return false;
+    }
 
     int contentLength = 0;
     if (isHttp) {
