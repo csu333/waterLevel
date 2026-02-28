@@ -267,10 +267,11 @@ void updateMsg(String topic, String payload)
     {
         Log.noticeln(F("Ready to restart"));
         client.publish((ROOT_TOPIC + "/update/url").c_str(), new byte[0], 0, true);
-        client.flush();
-        client.loop();
-        delay(1000);
-        client.loop();
+        for (int i = 0; i < 40; i++) {
+            client.loop();
+            delay(50);
+        }
+        Log.infoln(F("Restarting now."));
         ESP.restart();
     }
 }
@@ -426,7 +427,7 @@ bool reconnect()
         clientId += String(random(0xffff), HEX);
 
         // Attempt to connect
-        if (client.connect(clientId.c_str()))
+        if (client.connect(clientId.c_str(), MQTT_USERNAME.c_str(), MQTT_PASSWORD.c_str()))
         {
             // ... and resubscribe
             client.setCallback(callback);
@@ -435,7 +436,11 @@ bool reconnect()
             client.subscribe((ROOT_TOPIC + "/file/get").c_str());
             client.subscribe((ROOT_TOPIC + "/file/dirlist").c_str());
             Log.noticeln(F("Subscription done"));
-            delay(100);
+            // Wait for retained messages
+            for (int i = 0; i < 10; i++) {
+                client.loop();
+                delay(50);
+            }
             return true;
         }
         else

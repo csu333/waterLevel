@@ -13,3 +13,5 @@ IPAddress dns      = IPAddress(192, 168, 0, 1);
 // MQTT broker IP Address
 IPAddress MQTT_SERVER = IPAddress(192, 168, 0, 201);
 String ROOT_TOPIC     = "water";
+String MQTT_USERNAME  = "user";
+String MQTT_PASSWORD  = "password";

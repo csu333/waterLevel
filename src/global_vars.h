@@ -8,17 +8,17 @@
 #include "PubSubPrint.h"
 
 // Constants
-#define BATTERY_ALERT_THRESHOLD 2.0 // V
-#define BATTERY_ALERT_REARM 2.1     // V
+#define BATTERY_ALERT_THRESHOLD 2.0    // V
+#define BATTERY_ALERT_REARM 2.1        // V
 #define BATTERY_ON_POWER_THRESHOLD 3.5 // V
 
-#define DEFAULT_MAX_DIFFERENCE 200// mm
+#define DEFAULT_MAX_DIFFERENCE 200     // mm
 
-#define DEFAULT_SLEEP_TIME 5e6   // us
+#define DEFAULT_SLEEP_TIME 5e6         // us
 
-#define CLOSEST 200                   // mm
-#define FARTHEST 8000                 // mm
-#define SPEED_OF_SOUND 330            // m
+#define CLOSEST 200                    // mm
+#define FARTHEST 8000                  // mm
+#define SPEED_OF_SOUND 330             // m
 
 #define BAT_ADC    2
 
@@ -72,9 +72,11 @@ extern PubSubClient client;
 extern PubSubPrint mqttLog;
 
 // MQTT configuration
+extern bool callback_running;
 extern IPAddress MQTT_SERVER;
 extern String ROOT_TOPIC;
-extern bool callback_running;
+extern String MQTT_USERNAME;
+extern String MQTT_PASSWORD;
 
 // Network credentials
 extern String WLAN_SSID;
@@ -85,9 +87,5 @@ extern IPAddress staticIP;
 extern IPAddress gateway;
 extern IPAddress subnet;
 extern IPAddress dns;
-
-// MQTT broker IP Address
-extern IPAddress MQTT_SERVER;
-extern String    ROOT_TOPIC;
 
 #endif
