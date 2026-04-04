@@ -1,5 +1,6 @@
 #include "FilePrint.h"
 #include "esp_littlefs.h"
+#include "storage_config.h"
 
 String FilePrint::getLastLogFileName() {
     return lastLogFileName;

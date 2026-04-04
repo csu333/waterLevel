@@ -1,3 +1,6 @@
+#ifndef MULTI_PRINT_H
+#define MULTI_PRINT_H
+
 #include <cstddef>
 #include <Print.h>
 #include <cstdarg>
@@ -32,3 +35,5 @@ class MultiPrint : public Print
 
         void flush();
 };
+
+#endif

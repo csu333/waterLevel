@@ -6,7 +6,6 @@
 #include <LittleFS.h>
 #include <ArduinoLog.h>
 #include "Arduino.h"
-#include "global_vars.h"
 
 class FilePrint : public Print
 {

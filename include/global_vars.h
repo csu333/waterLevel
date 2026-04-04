@@ -37,14 +37,8 @@
 #define echoPin1 7
 #define gndPin0 6
 
-// Memory mapping
-#define SETTINGS_NAMESPACE "settings"
-
-// File logging config
-#define MAX_LOG_FILE_NUMBER 20
-#define BASE_PATH "/littlefs"
-#define MAX_OPEN_FILE 2U
-#define PARTITION_LABEL "storage"
+// Memory mapping and file logging config (shared with lib/)
+#include "storage_config.h"
 
 // Water level mapping
 extern RTC_DATA_ATTR int minLevel[];
