@@ -71,8 +71,8 @@ int getDownloadSize(esp_http_client_handle_t http) {
     unsigned long timeout = millis();
 
     contentLength = esp_http_client_fetch_headers(http);
-    int returnCode = !esp_http_client_get_status_code(http);
-    if (returnCode && returnCode != 200) {
+    int returnCode = esp_http_client_get_status_code(http);
+    if (returnCode != 200) {
         Log.errorln("Got a non 200 status code from server (%d). Exiting OTA Update.", returnCode);
         return -1;
     }

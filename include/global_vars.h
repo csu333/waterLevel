@@ -18,7 +18,7 @@
 
 #define CLOSEST 200                    // mm
 #define FARTHEST 8000                  // mm
-#define SPEED_OF_SOUND 330             // m
+#define SPEED_OF_SOUND 340             // m/s
 
 #define BAT_ADC    2
 

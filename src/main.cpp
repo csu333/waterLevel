@@ -153,14 +153,9 @@ void startSleep()
     pinMode(trigPin1, INPUT);
     pinMode(gndPin0, INPUT);
     
-    // Shut down RTC (Low Power) Peripherals
-    esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_PERIPH,   ESP_PD_OPTION_OFF);
-    // Shut down RTC Slow Memory
-    esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_SLOW_MEM, ESP_PD_OPTION_OFF);
-    // Shut down RTC Fast Memory
-    esp_sleep_pd_config(ESP_PD_DOMAIN_RTC_FAST_MEM, ESP_PD_OPTION_OFF);
-    // Shut down Crystal Oscillator XTAL 
-    esp_sleep_pd_config(ESP_PD_DOMAIN_XTAL,         ESP_PD_OPTION_OFF);
+    // Shut down Crystal Oscillator XTAL
+    esp_sleep_pd_config(ESP_PD_DOMAIN_XTAL, ESP_PD_OPTION_OFF);
+    // Note: RTC_SLOW_MEM and RTC_FAST_MEM must stay on to preserve RTC_DATA_ATTR variables across deep sleep
     // Enter Deep Sleep
     esp_sleep_disable_wakeup_source(ESP_SLEEP_WAKEUP_ALL);
     esp_sleep_enable_timer_wakeup(st);
@@ -227,6 +222,20 @@ void report()
         // Reporting voltage
         client.publish((ROOT_TOPIC + "/voltage").c_str(), (String(batteryLevel)).c_str(), true);
         client.publish((ROOT_TOPIC + "/availability").c_str(), "online", false);
+
+        // Battery alert (published here where MQTT is guaranteed connected)
+        if (batteryLevel <= BATTERY_ALERT_THRESHOLD)
+        {
+            Log.warningln("Battery low!");
+            client.publish((ROOT_TOPIC + "/alert").c_str(), "Battery low");
+            batteryAlertSent = true;
+        }
+        else if (batteryAlertSent && batteryLevel > BATTERY_ALERT_REARM)
+        {
+            // Clear alert
+            batteryAlertSent = false;
+            client.publish((ROOT_TOPIC + "/alert").c_str(), new byte[0], 0, true);
+        }
         client.loop();
         Log.noticeln(F("Measurements sent"));
 
@@ -353,7 +362,7 @@ void setup()
         preferences.putBool("init", true);
     }
 
-    fileLog = FilePrint();
+    fileLog.begin();
     mp.addOutput(&fileLog);
     if (preferences.isKey("logLevel"))
     {
@@ -372,18 +381,30 @@ void setup()
     // Read config from Flash
     for (int i = 0; i < PROBE_COUNT; i++)
     {
-        minLevel[i] = preferences.getInt(String("minLevel-" + i).c_str(), CLOSEST);
-        maxLevel[i] = preferences.getInt(String("maxLevel-" + i).c_str(), FARTHEST);
+        minLevel[i] = preferences.isKey(String("minLevel-" + i).c_str())
+            ? preferences.getInt(String("minLevel-" + i).c_str(), CLOSEST)
+            : CLOSEST;
+        maxLevel[i] = preferences.isKey(String("maxLevel-" + i).c_str())
+            ? preferences.getInt(String("maxLevel-" + i).c_str(), FARTHEST)
+            : FARTHEST;
     }
     // Sleep time
-    sleepTime = preferences.getULong64("sleepTime", DEFAULT_SLEEP_TIME);
+    sleepTime = preferences.isKey("sleepTime")
+        ? preferences.getULong64("sleepTime", DEFAULT_SLEEP_TIME)
+        : DEFAULT_SLEEP_TIME;
 
     // Sleep time on power
-    sleepTimeOnPower = preferences.getULong64("sleepTimeOnPow", DEFAULT_SLEEP_TIME);
-    onPowerThreshold = preferences.getFloat("onPowerThresh", BATTERY_ON_POWER_THRESHOLD);
+    sleepTimeOnPower = preferences.isKey("sleepTimeOnPow")
+        ? preferences.getULong64("sleepTimeOnPow", DEFAULT_SLEEP_TIME)
+        : DEFAULT_SLEEP_TIME;
+    onPowerThreshold = preferences.isKey("onPowerThresh")
+        ? preferences.getFloat("onPowerThresh", BATTERY_ON_POWER_THRESHOLD)
+        : BATTERY_ON_POWER_THRESHOLD;
 
     // Max difference
-    maxDifference = preferences.getUShort("maxDifference", DEFAULT_MAX_DIFFERENCE);
+    maxDifference = preferences.isKey("maxDifference")
+        ? preferences.getUShort("maxDifference", DEFAULT_MAX_DIFFERENCE)
+        : DEFAULT_MAX_DIFFERENCE;
 
     // Checking the recorded value (should only be useful on the first start)
     if (isnan(sleepTime) || sleepTime <= 0)
@@ -457,20 +478,6 @@ void setup()
     // Read the battery level
     batteryLevel = getVoltage();
     Log.traceln(F("Battery voltage = %F V"), batteryLevel);
-
-    // sends alert if battery low
-    if (batteryLevel <= BATTERY_ALERT_THRESHOLD)
-    {
-        Log.warningln("Battery low!");
-        client.publish((ROOT_TOPIC + "/alert").c_str(), "Battery low");
-        batteryAlertSent = true;
-    }
-    else if (batteryAlertSent && batteryLevel > BATTERY_ALERT_REARM)
-    {
-        // Clear alert
-        batteryAlertSent = false;
-        client.publish((ROOT_TOPIC + "/alert").c_str(), new byte[0], 0, true);
-    }
 
 #if PROBE_COUNT >= 1
     waterLevel[0] = getWaterLevel(trigPin0, echoPin0, 0);

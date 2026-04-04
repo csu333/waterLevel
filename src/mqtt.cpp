@@ -182,7 +182,7 @@ void configMsg(String topic, String payload)
 
                 preferences.putFloat("onPowerThresh", onPowerThreshold);
 
-                Log.noticeln(F("New power threshold set: %i s"), (int)(onPowerThreshold / 1e6));
+                Log.noticeln(F("New power threshold set: %.1f V"), onPowerThreshold);
             }
             else
             {
@@ -285,10 +285,7 @@ void fileGet(String fileName)
         return;
     }
 
-    if (!LittleFS.begin(false, BASE_PATH, MAX_OPEN_FILE, PARTITION_LABEL)) {
-        Log.errorln(F("Failed to mount LittleFS"));
-        return;
-    }
+    // LittleFS is already mounted by FilePrint at startup; do not call begin() again
 
     if (!LittleFS.exists(fileName))
     {
@@ -316,13 +313,17 @@ void fileGet(String fileName)
     }
     file.close();
     
-    String contentPart = String(MQTT_MAX_PACKET_SIZE / 2);
-    for (int i = 0; i < content.length(); i += contentPart.length() + 1)
+    const int chunkSize = MQTT_MAX_PACKET_SIZE / 2;
+    for (int i = 0; i < (int)content.length(); )
     {
-        contentPart = content.substring(i, i + MQTT_MAX_PACKET_SIZE / 2);
-        contentPart = contentPart.substring(0, contentPart.lastIndexOf('\n'));
+        String contentPart = content.substring(i, i + chunkSize);
+        int lastNewline = contentPart.lastIndexOf('\n');
+        if (lastNewline > 0) {
+            contentPart = contentPart.substring(0, lastNewline);
+        }
         client.publish(dataTopic.c_str(), contentPart.c_str(), false);
         client.flush();
+        i += contentPart.length() + 1; // +1 to skip the trimmed newline
     }
     
     client.publish((ROOT_TOPIC + "/file/get").c_str(), new byte[0], 0, true);
@@ -337,10 +338,7 @@ void dirList(String dirName)
         return;
     }
 
-    if (!LittleFS.begin(false, BASE_PATH, MAX_OPEN_FILE, PARTITION_LABEL)) {
-        Log.errorln(F("Failed to mount LittleFS"));
-        return;
-    }
+    // LittleFS is already mounted by FilePrint at startup; do not call begin() again
 
     if (!LittleFS.exists(dirName))
     {
@@ -382,10 +380,13 @@ void callback(char *topic, byte *payload, unsigned int length)
     callback_running = true;
     // Stop sending log to MQTT to avoid deadlocks
     // mqttLog.setSuspend(true);
-    payload[length] = '\0';
+    // payload is not null-terminated; copy to a local buffer
+    char payloadStr[length + 1];
+    memcpy(payloadStr, payload, length);
+    payloadStr[length] = '\0';
 
     String _topic = String(topic);
-    String _payload = String((char *)payload);
+    String _payload = String(payloadStr);
     Log.noticeln(F("Message received on topic: %s"), _topic.c_str());
 
     if (_topic.equals(ROOT_TOPIC + "/update/url") == 1)

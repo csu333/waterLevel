@@ -17,16 +17,15 @@ int getWaterReading(uint8_t trigPin, uint8_t echoPin)
     Log.traceln("Triggering on port %u and listening echo on port %u", trigPin, echoPin);
     pinMode(trigPin, OUTPUT);
     pinMode(echoPin, INPUT);
-    digitalWrite(trigPin, LOW); //
-    delay(10);
+    digitalWrite(trigPin, LOW);
+    delay(1);
     digitalWrite(trigPin, HIGH);
     delay(2);
     digitalWrite(trigPin, LOW);
-    delay(1);
     // Reads the echoPin, returns the sound wave travel time in microseconds
     duration = pulseIn(echoPin, HIGH, 50000);
     // Calculating the distance
-    distance = duration * 0.34 / 2; // Speed of sound wave divided by 2 (go and back)
+    distance = duration * (SPEED_OF_SOUND / 1000.0) / 2; // Speed of sound (mm/µs) divided by 2 (go and back)
 
     if (distance <= 0)
     {
@@ -46,8 +45,8 @@ int getWaterLevel(uint8_t trigPin, uint8_t echoPin, uint8_t index)
     // Check that returned value makes sense
 
     int i = 0;
-    // Check reading plausibility
-    while ((distance < CLOSEST || abs(distance - lastMeasure[index]) > maxDifference) && i < 4)
+    // Check reading plausibility; skip the difference check on first boot (lastMeasure == 0)
+    while ((distance < CLOSEST || (lastMeasure[index] != 0 && abs(distance - lastMeasure[index]) > maxDifference)) && i < 4)
     {
 
         if (distance < CLOSEST)
@@ -55,10 +54,10 @@ int getWaterLevel(uint8_t trigPin, uint8_t echoPin, uint8_t index)
             Log.warningln("Distance too short for the sensor %d. Trying again.", index);
         }
 
-        if (distance >= CLOSEST && abs(distance - lastMeasure[index]) > maxDifference)
+        if (distance >= CLOSEST && lastMeasure[index] != 0 && abs(distance - lastMeasure[index]) > maxDifference)
         {
             Log.warningln("There is more than %dmm difference with last measure (was %dmm compared to %dmm now). Trying again", maxDifference, lastMeasure[index], distance);
-            lastMeasure[index] = (uint16_t)distance;
+            // Do not update lastMeasure here — keep the original reference value for all retries
         }
 
         delay(random(20, 100));

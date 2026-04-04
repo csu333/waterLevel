@@ -29,16 +29,15 @@ bool initWiFi()
         fastConnect = true;
     }
 
-    if (failedConnection >= 4)
+    else if (failedConnection >= 4)
     {
-        // The RTC data was not valid, so make a regular connection
+        // Too many failures; drop cached channel/BSSID and make a fresh connection
         Log.warningln(F("Number of connection failure too high (%d). Using regular connection instead"), failedConnection);
         WiFi.begin(WLAN_SSID, WLAN_PASSWD);
     }
-
-    if (!rtcValid)
+    else if (!rtcValid)
     {
-        // The RTC data was not valid, so make a regular connection
+        // First boot — no cached connection info yet
         Log.warningln(F("This is the first initialisation after reset"));
         WiFi.begin(WLAN_SSID, WLAN_PASSWD);
     }

@@ -16,7 +16,8 @@ class FilePrint : public Print
         String lastLogFileName = "";
 
     public:
-        FilePrint();
+        FilePrint() = default; // no-op; call begin() explicitly from setup()
+        void begin();
 
         size_t write(const uint8_t * buffer, size_t size) override;
         size_t write(uint8_t c) override;

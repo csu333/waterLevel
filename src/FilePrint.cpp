@@ -5,7 +5,7 @@ String FilePrint::getLastLogFileName() {
     return lastLogFileName;
 }
 
-FilePrint::FilePrint() {
+void FilePrint::begin() {
     Log.traceln("Mounting LittleFS partition");
     esp_err_t err;
     
@@ -49,7 +49,7 @@ FilePrint::FilePrint() {
             }
             if (lastSeq >= MAX_LOG_FILE_NUMBER) {
                 Log.errorln("Too many log files. Deleting %s", nextFileName);
-                LittleFS.remove("/" + nextFileName);
+                LittleFS.remove(nextFileName);
             }
         }
         nextFileName = root.getNextFileName();
@@ -70,8 +70,6 @@ FilePrint::FilePrint() {
                 Log.errorln("/log000.txt delete failed");
             }
         }
-        String filename = String(buffer);
-
         // Shifting remaining files
         int nextFile = 1;
         for (int i = 1; i < MAX_LOG_FILE_NUMBER ; i++){
